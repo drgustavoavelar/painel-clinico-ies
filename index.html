@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Painel Clínico IES</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js" integrity="sha384-iU8HYtnGQ8Cy4zl7gbNMOhsDTTKX02BTXptVP/vqAWIaTfM7isw76iyZCsjL2eVi" crossorigin="anonymous"></script>
+<style>
+  :root {
+    color-scheme: light;
+    --azul: #0040F9;
+    --azul-esc: #00113F;
+    --quase-preto: #1C1F2A;
+    --branco: #FDFDFD;
+    --cinza-bg: #F2F5FF;
+    --cinza-borda: #E1E6F5;
+    --ambar: #B4650A;
+    --ambar-bg: #FCEFDC;
+    --teal: #0B6E7A;
+    --teal-bg: #E3F3F5;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--branco); color: var(--quase-preto);
+    font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+    font-size: 14px; line-height: 1.5;
+  }
+  header {
+    background: linear-gradient(135deg, var(--azul-esc), var(--azul));
+    color: var(--branco); padding: 20px 28px;
+  }
+  header .brand { font-size: 12px; letter-spacing: 1.5px; opacity: .85; text-transform: uppercase; margin-bottom: 4px; }
+  header h1 { margin: 0; font-size: 22px; font-weight: 700; }
+  header .sub { font-size: 13px; opacity: .9; margin-top: 4px; }
+  .toolbar {
+    display: flex; gap: 10px; align-items: center; padding: 12px 28px;
+    background: var(--cinza-bg); border-bottom: 1px solid var(--cinza-borda); flex-wrap: wrap;
+  }
+  select, button, textarea, input {
+    font-family: inherit; font-size: 13px; border-radius: 8px; border: 1px solid var(--cinza-borda);
+  }
+  select { padding: 8px 10px; background: var(--branco); color: var(--quase-preto); }
+  button {
+    padding: 8px 14px; background: var(--azul); color: var(--branco); border: none; cursor: pointer; font-weight: 600;
+  }
+  button.secondary { background: var(--branco); color: var(--azul); border: 1px solid var(--azul); }
+  button:hover { opacity: .9; }
+  main { padding: 22px 28px 60px; max-width: 1100px; margin: 0 auto; }
+  .card {
+    background: var(--branco); border: 1px solid var(--cinza-borda); border-radius: 12px;
+    padding: 18px 20px; margin-bottom: 18px;
+  }
+  .card h2 { margin: 0 0 12px; font-size: 16px; color: var(--azul-esc); border-bottom: 2px solid var(--azul); padding-bottom: 8px; }
+  .patient-meta { display: flex; flex-wrap: wrap; gap: 6px 22px; font-size: 13px; color: #444; }
+  .patient-meta b { color: var(--azul-esc); }
+  .tabs { display: flex; gap: 4px; margin-bottom: 16px; border-bottom: 1px solid var(--cinza-borda); flex-wrap: wrap; }
+  .tab-btn {
+    background: none; border: none; padding: 10px 14px; cursor: pointer; font-weight: 600; color: #667;
+    border-bottom: 3px solid transparent; border-radius: 0;
+  }
+  .tab-btn.active { color: var(--azul); border-bottom-color: var(--azul); }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+  .metric-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px,1fr)); gap: 10px; }
+  .metric {
+    border: 1px solid var(--cinza-borda); border-radius: 10px; padding: 10px 12px; background: var(--cinza-bg);
+  }
+  .metric.abn { background: var(--ambar-bg); border-color: #EAC796; }
+  .metric.noref { background: var(--branco); }
+  .metric .name { font-weight: 700; font-size: 12.5px; color: var(--azul-esc); }
+  .metric .val { font-size: 18px; font-weight: 700; margin: 2px 0; }
+  .metric .ref { font-size: 11px; color: #667; }
+  .metric .flag { font-size: 11px; font-weight: 700; }
+  .metric.abn .flag { color: var(--ambar); }
+  .metric.noref .flag { color: #778; font-weight: 600; font-style: italic; }
+  .metric:not(.abn):not(.noref) .flag { color: var(--azul); }
+  .finding { border-left: 4px solid var(--azul); padding: 8px 12px; margin-bottom: 10px; background: var(--cinza-bg); border-radius: 0 8px 8px 0; }
+  .finding .exame { font-weight: 700; font-style: italic; color: var(--azul-esc); margin-bottom: 4px; }
+  .tag { display: inline-block; font-weight: 700; font-size: 11.5px; padding: 1px 7px; border-radius: 5px; margin-right: 6px; }
+  .tag.achado { background: #DCE5FF; color: var(--azul-esc); }
+  .tag.hipotese { background: var(--ambar-bg); color: var(--ambar); }
+  .tag.sugestao { background: var(--teal-bg); color: var(--teal); }
+  ul.plain { margin: 6px 0; padding-left: 18px; }
+  ul.plain li { margin-bottom: 6px; }
+  .chart-wrap { position: relative; height: 220px; margin-bottom: 4px; }
+  .chart-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px,1fr)); gap: 18px; }
+  .modal-bg {
+    display: none; position: fixed; inset: 0; background: rgba(0,17,63,.5); align-items: center; justify-content: center; z-index: 50;
+  }
+  .modal-bg.open { display: flex; }
+  .modal { background: var(--branco); border-radius: 12px; padding: 20px; width: 640px; max-width: 92vw; max-height: 85vh; overflow: auto; }
+  .modal h3 { margin-top: 0; color: var(--azul-esc); }
+  .modal textarea { width: 100%; height: 260px; font-family: ui-monospace, Menlo, monospace; font-size: 12px; padding: 10px; }
+  .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+  .hint { font-size: 12px; color: #667; margin-top: 8px; }
+  .empty { color: #778; font-style: italic; padding: 10px 0; }
+  .snap-list { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+  .snap-chip { font-size: 11.5px; background: var(--cinza-bg); border: 1px solid var(--cinza-borda); padding: 3px 9px; border-radius: 999px; color: var(--azul-esc); }
+  footer { text-align: center; font-size: 11px; color: #99a; padding: 20px; }
+
+  /* ── Impressão ── */
+  @media print {
+    * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+    .toolbar, #tabs, .modal-bg, footer, #btnPrint { display: none !important; }
+    header { padding: 16px 24px; }
+    header h1 { font-size: 18px; }
+    body { font-size: 12px; background: #fff; }
+    main { padding: 12px 20px 30px; max-width: 100%; }
+    .tab-panel { display: block !important; }
+    .card { margin-bottom: 14px; padding: 14px 16px; break-inside: avoid; page-break-inside: avoid; }
+    .card h2 { font-size: 13px; margin-bottom: 8px; }
+    .metric-grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px; }
+    .metric { padding: 8px 10px; }
+    .metric .val { font-size: 15px; }
+    .chart-wrap { height: 160px !important; }
+    .chart-grid { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+    .finding { padding: 6px 10px; margin-bottom: 8px; }
+    .print-section-break { break-before: page; page-break-before: always; }
+    .print-date { font-size: 11px; color: #667; margin-top: 2px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">Instituto Elo de Saúde — Painel Clínico</div>
+  <h1 id="hdrName">Carregando…</h1>
+  <div class="sub" id="hdrSub"></div>
+</header>
+
+<div class="toolbar">
+  <label style="font-weight:600;color:var(--azul-esc)">Paciente:</label>
+  <input type="text" id="patientSearch" placeholder="Buscar por nome..." style="padding:8px 10px;min-width:160px">
+  <select id="patientSelect"></select>
+  <button class="secondary" id="btnNewPatient">+ Novo paciente</button>
+  <button id="btnNewSnapshot">+ Adicionar exame (snapshot)</button>
+  <button class="secondary" id="btnExport">Exportar dados (JSON)</button>
+  <button class="secondary" id="btnImport">Importar backup (JSON)</button>
+  <input type="file" id="importFile" accept="application/json" style="display:none">
+  <span style="flex:1"></span>
+  <span class="hint" id="snapCount"></span>
+  <button class="secondary" id="btnPrint" style="border-color:var(--azul-esc);color:var(--azul-esc)">⎙ Imprimir relatório</button>
+</div>
+
+<main>
+
+  <div class="card">
+    <h2>Dados do paciente</h2>
+    <div class="patient-meta" id="patientMeta"></div>
+    <div class="snap-list" id="snapList"></div>
+  </div>
+
+  <div class="tabs" id="tabs">
+    <button class="tab-btn active" data-tab="metrics">Marcadores</button>
+    <button class="tab-btn" data-tab="trends">Tendências</button>
+    <button class="tab-btn" data-tab="findings">Achados / Hipóteses / Sugestões</button>
+    <button class="tab-btn" data-tab="sintese">Síntese</button>
+    <button class="tab-btn" data-tab="prontuario">Prontuário</button>
+    <button class="tab-btn" data-tab="paciente">Texto ao paciente</button>
+    <button class="tab-btn" data-tab="terapeutica">Sugestões terapêuticas</button>
+  </div>
+
+  <div class="tab-panel active" id="panel-metrics">
+    <div class="card">
+      <h2>Marcadores — último exame</h2>
+      <div class="metric-grid" id="metricGrid"></div>
+    </div>
+  </div>
+
+  <div class="tab-panel print-section-break" id="panel-trends">
+    <div class="card">
+      <h2>Tendências ao longo do tempo</h2>
+      <div class="chart-grid" id="chartGrid"></div>
+    </div>
+  </div>
+
+  <div class="tab-panel print-section-break" id="panel-findings">
+    <div class="card">
+      <h2>Interpretação — Achados, Hipóteses e Sugestões</h2>
+      <div id="findingsList"></div>
+    </div>
+  </div>
+
+  <div class="tab-panel" id="panel-sintese">
+    <div class="card">
+      <h2>Síntese final</h2>
+      <ul class="plain" id="sinteseList"></ul>
+    </div>
+  </div>
+
+  <div class="tab-panel" id="panel-prontuario">
+    <div class="card">
+      <h2>Texto para prontuário</h2>
+      <p id="prontuarioText"></p>
+    </div>
+  </div>
+
+  <div class="tab-panel" id="panel-paciente">
+    <div class="card">
+      <h2>Texto para o médico ler ao paciente</h2>
+      <div id="pacienteText"></div>
+    </div>
+  </div>
+
+  <div class="tab-panel" id="panel-terapeutica">
+    <div class="card">
+      <h2>Opções manipuladas</h2>
+      <ul class="plain" id="manipuladasList"></ul>
+    </div>
+    <div class="card">
+      <h2>Opções comercializadas</h2>
+      <ul class="plain" id="comercializadasList"></ul>
+    </div>
+  </div>
+
+</main>
+
+<footer>Uso pessoal — Dr. Gustavo Avelar · CRM-GO 26553 · Instituto Elo de Saúde · Este painel não substitui julgamento clínico.</footer>
+
+<div class="modal-bg" id="modalBg">
+  <div class="modal">
+    <h3 id="modalTitle">Adicionar snapshot de exame</h3>
+    <p class="hint">Cole abaixo o JSON estruturado do exame (peça para o Claude gerar esse JSON a partir da análise do PDF, seguindo o schema do botão "Ver schema"). Isso substitui os dados do paciente selecionado ou cria um novo.</p>
+    <textarea id="jsonInput" placeholder="Cole aqui o JSON..."></textarea>
+    <div class="modal-actions">
+      <button class="secondary" id="btnSchema">Ver schema</button>
+      <button class="secondary" id="btnCancelModal">Cancelar</button>
+      <button id="btnSaveModal">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const STORAGE_KEY = "ies_painel_clinico_v1";
+
+const SCHEMA_EXAMPLE = {
+  patientId: "nome-sobrenome-exemplo",
+  name: "Nome Sobrenome (exemplo)",
+  prontuario: "000000",
+  info: "DN 00/00/0000 (00a) · Sexo · IMC exemplo · Circunferência abdominal exemplo",
+  snapshots: [
+    {
+      date: "2026-01-01",
+      label: "Coleta 01/01/2026",
+      metrics: [
+        { key: "TSH", label: "TSH", value: 0.21, unit: "µUI/mL", refLow: 0.38, refHigh: 5.60 },
+        { key: "T4L", label: "T4 livre", value: 0.87, unit: "ng/dL", refLow: 0.54, refHigh: 1.48 }
+      ],
+      findings: [
+        { group: "Tireoide", achado: "TSH suprimido, T4L normal.", hipotese: "Hipertireoidismo subclínico vs doença não tireoidiana.", sugestao: "Repetir TSH/T4L/T3, correlacionar clínica." }
+      ],
+      sintese: ["Ponto 1...", "Ponto 2..."],
+      prontuario: "Texto corrido para o prontuário...",
+      paciente: ["Parágrafo 1 para o paciente...", "Parágrafo 2..."],
+      terapeutica: { manipuladas: ["Sugestão 1..."], comercializadas: ["Sugestão 1..."] }
+    }
+  ]
+};
+
+function loadDB() {
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || { patients: {} }; }
+  catch(e) { return { patients: {} }; }
+}
+function saveDB(db) { localStorage.setItem(STORAGE_KEY, JSON.stringify(db)); }
+
+function seedIfEmpty() {
+  // Painel novo: nasce vazio. Pacientes são inseridos pela interface
+  // ("+ Novo paciente" / "+ Adicionar exame") colando o JSON gerado pela skill.
+  return loadDB();
+}
+
+let DB = seedIfEmpty();
+let currentPatientId = Object.keys(DB.patients)[0];
+let charts = [];
+
+function fmtDate(d) {
+  const [y,m,day] = d.split("-");
+  return `${day}/${m}/${y}`;
+}
+
+function getMetricStatus(m) {
+  const hasLow = m.refLow !== undefined && m.refLow !== null;
+  const hasHigh = m.refHigh !== undefined && m.refHigh !== null;
+  if (!hasLow && !hasHigh) return "none"; // sem intervalo de referência informado — não é anormalidade
+  if (hasLow && m.value < m.refLow) return "below";
+  if (hasHigh && m.value > m.refHigh) return "above";
+  return "normal";
+}
+
+function populatePatientSelect() {
+  const sel = document.getElementById("patientSelect");
+  const term = (document.getElementById("patientSearch").value || "").trim().toLowerCase();
+  sel.innerHTML = "";
+  const matches = Object.values(DB.patients)
+    .filter(p => !term || p.name.toLowerCase().includes(term))
+    .sort((a,b) => a.name.localeCompare(b.name));
+  matches.forEach(p => {
+    const opt = document.createElement("option");
+    opt.value = p.patientId; opt.textContent = p.name;
+    sel.appendChild(opt);
+  });
+  // mantém o paciente atual selecionado se ainda estiver na lista filtrada; senão, cai para o primeiro resultado
+  if (matches.some(p => p.patientId === currentPatientId)) {
+    sel.value = currentPatientId;
+  } else if (matches.length > 0) {
+    currentPatientId = matches[0].patientId;
+    sel.value = currentPatientId;
+  }
+}
+
+function render() {
+  const p = DB.patients[currentPatientId];
+  if (!p || !p.snapshots || p.snapshots.length === 0) {
+    document.getElementById("hdrName").textContent = p ? p.name : "Sem paciente";
+    document.getElementById("hdrSub").textContent = "Nenhum snapshot cadastrado ainda.";
+    return;
+  }
+  const snaps = [...p.snapshots].sort((a,b)=> a.date.localeCompare(b.date));
+  const latest = snaps[snaps.length-1];
+
+  document.getElementById("hdrName").textContent = p.name;
+  document.getElementById("hdrSub").textContent = `Prontuário ${p.prontuario || "—"} · Último snapshot: ${fmtDate(latest.date)} (${latest.label || ""})`;
+  document.getElementById("patientMeta").innerHTML = `<div>${p.info || ""}</div>`;
+  document.getElementById("snapList").innerHTML = snaps.map(s => `<span class="snap-chip">${fmtDate(s.date)} — ${s.label || ""}</span>`).join("");
+  document.getElementById("snapCount").textContent = `${snaps.length} snapshot(s) para este paciente`;
+
+  // Metrics grid (latest)
+  const grid = document.getElementById("metricGrid");
+  grid.innerHTML = "";
+  (latest.metrics || []).forEach(m => {
+    const status = getMetricStatus(m);
+    const div = document.createElement("div");
+    div.className = "metric" + (status === "above" || status === "below" ? " abn" : "") + (status === "none" ? " noref" : "");
+    const flagText = {
+      below: "▼ abaixo da referência",
+      above: "▲ acima da referência",
+      normal: "dentro da referência",
+      none: "sem referência"
+    }[status];
+    div.innerHTML = `
+      <div class="name">${m.label}</div>
+      <div class="val">${m.value} <span style="font-size:12px;font-weight:400">${m.unit||""}</span></div>
+      <div class="ref">Ref.: ${m.refLow ?? "–"} a ${m.refHigh ?? "–"}</div>
+      <div class="flag">${flagText}</div>
+    `;
+    grid.appendChild(div);
+  });
+
+  // Trends
+  const chartGrid = document.getElementById("chartGrid");
+  chartGrid.innerHTML = "";
+  charts.forEach(c => c.destroy());
+  charts = [];
+  const keys = {};
+  snaps.forEach(s => (s.metrics||[]).forEach(m => { keys[m.key] = m.label; }));
+  Object.keys(keys).forEach(key => {
+    const points = snaps.map(s => {
+      const m = (s.metrics||[]).find(mm => mm.key === key);
+      return m ? { x: s.date, y: m.value, ref: m } : null;
+    }).filter(Boolean);
+    if (points.length < 1) return;
+    const wrap = document.createElement("div");
+    wrap.innerHTML = `<div style="font-weight:700;color:var(--azul-esc);margin-bottom:4px">${keys[key]}</div><div class="chart-wrap"><canvas></canvas></div>`;
+    chartGrid.appendChild(wrap);
+    const ctx = wrap.querySelector("canvas").getContext("2d");
+    const refLow = points[points.length-1].ref.refLow;
+    const refHigh = points[points.length-1].ref.refHigh;
+    const ch = new Chart(ctx, {
+      type: "line",
+      data: {
+        labels: points.map(pt => fmtDate(pt.x)),
+        datasets: [
+          { label: keys[key], data: points.map(pt => pt.y), borderColor: "#0040F9", backgroundColor: "#0040F9", tension: .2, pointRadius: 4 },
+          ...(refLow !== undefined && refLow !== null ? [{ label: "ref. mín", data: points.map(()=>refLow), borderColor: "#B4650A", borderDash: [4,4], pointRadius: 0 }] : []),
+          ...(refHigh !== undefined && refHigh !== null && refHigh < 999 ? [{ label: "ref. máx", data: points.map(()=>refHigh), borderColor: "#B4650A", borderDash: [4,4], pointRadius: 0 }] : [])
+        ]
+      },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+    });
+    charts.push(ch);
+  });
+  if (Object.keys(keys).length === 0) chartGrid.innerHTML = `<div class="empty">Sem marcadores para plotar ainda.</div>`;
+
+  // Findings
+  const fdiv = document.getElementById("findingsList");
+  fdiv.innerHTML = (latest.findings||[]).map(f => `
+    <div class="finding">
+      <div class="exame">${f.group}</div>
+      <div><span class="tag achado">Achado</span>${f.achado||""}</div>
+      <div style="margin-top:4px"><span class="tag hipotese">Hipótese</span>${f.hipotese||""}</div>
+      <div style="margin-top:4px"><span class="tag sugestao">Sugestão</span>${f.sugestao||""}</div>
+    </div>
+  `).join("") || `<div class="empty">Sem achados registrados.</div>`;
+
+  // Síntese
+  document.getElementById("sinteseList").innerHTML = (latest.sintese||[]).map(s => `<li>${s}</li>`).join("") || `<li class="empty">—</li>`;
+
+  // Prontuário
+  document.getElementById("prontuarioText").textContent = latest.prontuario || "—";
+
+  // Paciente
+  document.getElementById("pacienteText").innerHTML = (latest.paciente||[]).map(t => `<p>${t}</p>`).join("");
+
+  // Terapêutica
+  document.getElementById("manipuladasList").innerHTML = (latest.terapeutica?.manipuladas||[]).map(s => `<li>${s}</li>`).join("") || `<li class="empty">—</li>`;
+  document.getElementById("comercializadasList").innerHTML = (latest.terapeutica?.comercializadas||[]).map(s => `<li>${s}</li>`).join("") || `<li class="empty">—</li>`;
+}
+
+document.getElementById("tabs").addEventListener("click", (e) => {
+  const btn = e.target.closest(".tab-btn");
+  if (!btn) return;
+  document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+  document.querySelectorAll(".tab-panel").forEach(p => p.classList.remove("active"));
+  btn.classList.add("active");
+  document.getElementById("panel-" + btn.dataset.tab).classList.add("active");
+});
+
+document.getElementById("patientSelect").addEventListener("change", (e) => {
+  currentPatientId = e.target.value;
+  render();
+});
+
+document.getElementById("patientSearch").addEventListener("input", () => {
+  populatePatientSelect();
+  render();
+});
+
+document.getElementById("btnNewPatient").addEventListener("click", () => {
+  document.getElementById("modalTitle").textContent = "Novo paciente (cole o JSON completo)";
+  document.getElementById("jsonInput").value = "";
+  document.getElementById("modalBg").classList.add("open");
+});
+
+document.getElementById("btnNewSnapshot").addEventListener("click", () => {
+  document.getElementById("modalTitle").textContent = "Adicionar snapshot ao paciente atual (cole apenas o objeto do snapshot)";
+  document.getElementById("jsonInput").value = "";
+  document.getElementById("modalBg").classList.add("open");
+});
+
+document.getElementById("btnCancelModal").addEventListener("click", () => {
+  document.getElementById("modalBg").classList.remove("open");
+});
+
+document.getElementById("btnSchema").addEventListener("click", () => {
+  document.getElementById("jsonInput").value = JSON.stringify(SCHEMA_EXAMPLE, null, 2);
+});
+
+document.getElementById("btnSaveModal").addEventListener("click", () => {
+  const raw = document.getElementById("jsonInput").value.trim();
+  if (!raw) { alert("Cole um JSON válido antes de salvar."); return; }
+  let parsed;
+  try { parsed = JSON.parse(raw); } catch(e) { alert("JSON inválido: " + e.message); return; }
+
+  if (parsed.patientId && parsed.snapshots) {
+    // Full patient object -> create or replace patient
+    DB.patients[parsed.patientId] = parsed;
+    currentPatientId = parsed.patientId;
+  } else if (parsed.date && parsed.metrics) {
+    // Single snapshot -> append to current patient
+    if (!DB.patients[currentPatientId]) { alert("Nenhum paciente selecionado."); return; }
+    DB.patients[currentPatientId].snapshots.push(parsed);
+  } else {
+    alert("Formato não reconhecido. Use 'Ver schema' para o modelo esperado.");
+    return;
+  }
+  saveDB(DB);
+  populatePatientSelect();
+  document.getElementById("modalBg").classList.remove("open");
+  render();
+});
+
+document.getElementById("btnExport").addEventListener("click", () => {
+  const blob = new Blob([JSON.stringify(DB, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "painel_clinico_backup.json";
+  a.click();
+});
+
+document.getElementById("btnImport").addEventListener("click", () => {
+  document.getElementById("importFile").click();
+});
+
+document.getElementById("importFile").addEventListener("change", (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    let imported;
+    try { imported = JSON.parse(reader.result); }
+    catch (err) { alert("Arquivo inválido: " + err.message); return; }
+    if (!imported || typeof imported.patients !== "object") {
+      alert("Formato não reconhecido. Espera-se um backup exportado por este painel (objeto com chave 'patients').");
+      return;
+    }
+    const incoming = Object.values(imported.patients);
+    const conflicts = incoming.filter(p => DB.patients[p.patientId]);
+    if (conflicts.length > 0) {
+      const nomes = conflicts.map(p => p.name).join(", ");
+      const overwrite = confirm(
+        `${conflicts.length} paciente(s) já existem no painel atual (${nomes}).\n` +
+        `OK = sobrescrever esses pacientes com os dados do backup.\n` +
+        `Cancelar = manter os dados atuais e importar apenas os pacientes novos.`
+      );
+      incoming.forEach(p => {
+        if (DB.patients[p.patientId] && !overwrite) return;
+        DB.patients[p.patientId] = p;
+      });
+    } else {
+      incoming.forEach(p => { DB.patients[p.patientId] = p; });
+    }
+    saveDB(DB);
+    if (!currentPatientId && incoming.length > 0) currentPatientId = incoming[0].patientId;
+    populatePatientSelect();
+    render();
+    alert(`Importação concluída: ${incoming.length} paciente(s) processado(s).`);
+    e.target.value = "";
+  };
+  reader.readAsText(file);
+});
+
+document.getElementById("btnPrint").addEventListener("click", () => {
+  window.print();
+});
+
+populatePatientSelect();
+render();
+</script>
+</body>
+</html>
