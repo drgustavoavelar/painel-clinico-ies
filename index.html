@@ -8,6 +8,19 @@
   <!-- Carregando Tailwind CSS para estilos -->
   <script src="https://cdn.tailwindcss.com"></script>
   
+  <!-- Configurações específicas do Tailwind para Impressão -->
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          screens: {
+            'print': {'raw': 'print'},
+          }
+        }
+      }
+    }
+  </script>
+  
   <!-- Carregando React -->
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -15,7 +28,7 @@
   <!-- Carregando Babel para compilar o JSX no navegador -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   
-  <!-- Carregando Firebase Compat (Versão otimizada para navegadores) -->
+  <!-- Carregando Firebase Compat -->
   <script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore-compat.js"></script>
@@ -23,15 +36,24 @@
   <style>
     /* Estilos base */
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
-    /* Estilo para a barra de rolagem (opcional, deixa mais elegante) */
+    /* Estilo para a barra de rolagem */
     ::-webkit-scrollbar { width: 8px; height: 8px; }
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
     ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    
+    /* Ajustes forçados para impressão perfeita */
+    @media print {
+      @page { margin: 1.5cm; }
+      body { -webkit-print-color-adjust: exact; print-color-adjust: exact; background-color: white !important; }
+      .print-break-inside-avoid { break-inside: avoid; page-break-inside: avoid; }
+      /* Remove sombras na impressão para ficar mais limpo */
+      .shadow-sm, .shadow-md, .shadow-xl { box-shadow: none !important; border-color: #e2e8f0 !important; }
+    }
   </style>
 </head>
-<body class="bg-slate-50 text-slate-900 overflow-hidden">
-  <div id="root" class="h-screen w-screen"></div>
+<body class="bg-slate-50 text-slate-900 print:bg-white">
+  <div id="root" class="h-screen w-screen print:h-auto print:w-full"></div>
 
   <script type="text/babel">
     const { useState, useEffect, useMemo } = React;
@@ -53,47 +75,15 @@
     const db = firebase.firestore();
     const appId = 'painel-clinico-ies-web';
 
-    const IconUser = () => (
-      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
-      </svg>
-    );
-
-    const IconPlus = () => (
-      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-      </svg>
-    );
-
-    const IconFile = () => (
-      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
-      </svg>
-    );
-
-    const IconDownload = () => (
-      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
-      </svg>
-    );
-
-    const IconActivity = () => (
-      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18L9 11.25l4.306 4.307a11.95 11.95 0 015.814-5.519l2.74-1.22m0 0l-5.94-2.28m5.94 2.28l-2.28 5.941" />
-      </svg>
-    );
-
-    const IconAlert = () => (
-      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-      </svg>
-    );
-
-    const IconCloud = () => (
-      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z" />
-      </svg>
-    );
+    // Ícones
+    const IconUser = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" /></svg>;
+    const IconPlus = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>;
+    const IconFile = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>;
+    const IconDownload = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>;
+    const IconActivity = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18L9 11.25l4.306 4.307a11.95 11.95 0 015.814-5.519l2.74-1.22m0 0l-5.94-2.28m5.94 2.28l-2.28 5.941" /></svg>;
+    const IconAlert = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>;
+    const IconCloud = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z" /></svg>;
+    const IconPrinter = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M6.72 13.829c-.24.03-.48.062-.724.092m6.524-4.31a1.5 1.5 0 01-1.38-.9m-1.425 2.1c-.24.03-.48.062-.724.092m-5.8 4.053c-.24.03-.48.062-.724.092M6.72 13.829l-1.077 4.31a1.5 1.5 0 001.455 1.861h11.75c.875 0 1.575-.75 1.455-1.861l-1.077-4.31m-12.524-3.153A2.25 2.25 0 014.5 9h15a2.25 2.25 0 012.25 2.25v2.25A2.25 2.25 0 0119.5 15.75h-15a2.25 2.25 0 01-2.25-2.25v-2.25z" /><path strokeLinecap="round" strokeLinejoin="round" d="M8.25 10.5V6a2.25 2.25 0 012.25-2.25h3A2.25 2.25 0 0115.75 6v4.5" /></svg>;
 
     const checkMetricStatus = (value, min, max) => {
       if (value === null || value === undefined) return 'neutral';
@@ -134,7 +124,7 @@
       const refHighY = hasRefRange ? getY(latestRefHigh) : null;
 
       return (
-        <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+        <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 print-break-inside-avoid">
           <div className="mb-2 flex justify-between items-center">
             <h4 className="font-semibold text-slate-700">{metricName}</h4>
             <span className="text-xs text-slate-500">{unit}</span>
@@ -172,25 +162,6 @@
       );
     };
 
-    // Dados semente para teste
-    const SEED_PATIENT = {
-      patientId: "paciente-exemplo",
-      name: "Paciente Exemplo (Demonstração)",
-      prontuario: "12345-IES",
-      info: "Mulher, 42 anos. Histórico de hipotireoidismo.",
-      snapshots: [
-        {
-          date: "2025-12-10", label: "Exames de Rotina",
-          metrics: [{ key: "TSH", label: "TSH", value: 6.2, unit: "µUI/mL", refLow: 0.38, refHigh: 5.60 }],
-          findings: [{ group: "Tireoide", achado: "TSH elevado.", hipotese: "Hipotireoidismo.", sugestao: "Avaliar Levotiroxina." }],
-          sintese: ["Quadro de hipotireoidismo subclínico."],
-          prontuario: "Paciente comparece com TSH 6.2.",
-          paciente: ["Sua tireoide está trabalhando com dificuldade."],
-          terapeutica: { manipuladas: ["Vitamina D"], comercializadas: ["Levotiroxina 50mcg"] }
-        }
-      ]
-    };
-
     function PainelClinico() {
       const [patients, setPatients] = useState([]);
       const [selectedPatientId, setSelectedPatientId] = useState(null);
@@ -204,7 +175,6 @@
       const [isSyncing, setIsSyncing] = useState(false);
       const [authError, setAuthError] = useState(null);
 
-      // Efeito de Login Anônimo Automático
       useEffect(() => {
         const initAuth = async () => {
           try {
@@ -220,26 +190,19 @@
         return () => unsubscribe();
       }, []);
 
-      // Efeito de Busca de Dados (Nuvem em Tempo Real)
       useEffect(() => {
         if (!user) return;
         setIsSyncing(true);
-        
         const patientsRef = db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('patients');
-        
         const unsubscribe = patientsRef.onSnapshot((snapshot) => {
           const loadedPatients = [];
-          snapshot.forEach((doc) => {
-            loadedPatients.push(doc.data());
-          });
-          
+          snapshot.forEach((doc) => { loadedPatients.push(doc.data()); });
           setPatients(loadedPatients);
           setIsSyncing(false);
         }, (err) => {
           console.error("Erro ao carregar dados da nuvem:", err);
           setIsSyncing(false);
         });
-
         return () => unsubscribe();
       }, [user]);
 
@@ -257,21 +220,14 @@
           const docRef = db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('patients').doc(patientData.patientId);
           await docRef.set(patientData);
         } catch (error) {
-          console.error("Erro ao salvar na nuvem:", error);
+          console.error("Erro ao salvar:", error);
         } finally {
           setIsSyncing(false);
         }
       };
 
-      const handleExport = () => {
-        const dataStr = JSON.stringify(patients, null, 2);
-        const blob = new Blob([dataStr], { type: "application/json" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `painel_ies_backup_${new Date().toISOString().split('T')[0]}.json`;
-        a.click();
-        URL.revokeObjectURL(url);
+      const handlePrint = () => {
+        window.print();
       };
 
       const handleImportJson = async () => {
@@ -280,29 +236,21 @@
           const parsedData = JSON.parse(jsonInput);
 
           if (modalType === 'patient') {
-            if (!parsedData.patientId || !parsedData.name || !Array.isArray(parsedData.snapshots)) {
-              throw new Error("JSON inválido para Paciente.");
-            }
+            if (!parsedData.patientId || !parsedData.name || !Array.isArray(parsedData.snapshots)) throw new Error("JSON inválido para Paciente.");
             await saveToCloud(parsedData);
             setSelectedPatientId(parsedData.patientId);
             setSelectedSnapshotIdx(parsedData.snapshots.length - 1);
-            
           } else if (modalType === 'snapshot') {
-            if (!parsedData.date || !Array.isArray(parsedData.metrics)) {
-              throw new Error("JSON inválido para Snapshot.");
-            }
+            if (!parsedData.date || !Array.isArray(parsedData.metrics)) throw new Error("JSON inválido para Snapshot.");
             const currentPatientData = patients.find(p => p.patientId === selectedPatientId);
             if (!currentPatientData) throw new Error("Nenhum paciente selecionado.");
-
             const updatedPatient = {
               ...currentPatientData,
               snapshots: [...currentPatientData.snapshots, parsedData].sort((a, b) => new Date(a.date) - new Date(b.date))
             };
-            
             await saveToCloud(updatedPatient);
             setSelectedSnapshotIdx(updatedPatient.snapshots.length - 1);
           }
-          
           setIsModalOpen(false);
           setJsonInput('');
         } catch (err) {
@@ -326,9 +274,10 @@
       }, [currentPatient]);
 
       return (
-        <div className="flex h-screen bg-slate-50 font-sans text-slate-900 overflow-hidden">
+        <div className="flex h-screen overflow-hidden print:h-auto print:overflow-visible">
           
-          <div className="w-72 bg-[#00113F] text-white flex flex-col shadow-xl z-10 flex-shrink-0">
+          {/* Sidebar - Escondida na Impressão */}
+          <div className="w-72 bg-[#00113F] text-white flex flex-col shadow-xl z-10 flex-shrink-0 print:hidden">
             <div className="p-6 border-b border-white/10">
               <div className="flex justify-between items-start">
                 <h1 className="text-xl font-bold tracking-tight text-white flex items-center gap-2">
@@ -341,23 +290,14 @@
                   </div>
                 )}
               </div>
-              
-              {authError && (
-                <div className="mt-3 p-2 bg-red-500/20 border border-red-500/50 rounded-lg text-[11px] text-red-100 leading-tight">
-                  <span className="font-bold">⚠️ Conexão Pendente:</span><br/>{authError}
-                </div>
-              )}
+              {authError && <div className="mt-3 p-2 bg-red-500/20 border border-red-500/50 rounded-lg text-[11px] text-red-100"><span className="font-bold">⚠️ Erro:</span> {authError}</div>}
               <p className="text-xs text-blue-200 mt-2 opacity-80">Endocrinologia & Nutrologia</p>
             </div>
 
             <div className="flex-1 overflow-y-auto p-4 space-y-2">
               <div className="text-xs font-semibold text-blue-300 uppercase tracking-wider mb-3 px-2">Pacientes</div>
               {patients.map(p => (
-                <button
-                  key={p.patientId}
-                  onClick={() => { setSelectedPatientId(p.patientId); setSelectedSnapshotIdx(p.snapshots.length - 1); }}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors text-left ${selectedPatientId === p.patientId ? 'bg-[#0040F9] text-white font-medium shadow-md' : 'text-slate-300 hover:bg-white/10 hover:text-white'}`}
-                >
+                <button key={p.patientId} onClick={() => { setSelectedPatientId(p.patientId); setSelectedSnapshotIdx(p.snapshots.length - 1); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors text-left ${selectedPatientId === p.patientId ? 'bg-[#0040F9] text-white font-medium shadow-md' : 'text-slate-300 hover:bg-white/10 hover:text-white'}`}>
                   <IconUser />
                   <div className="truncate">
                     <div className="truncate">{p.name}</div>
@@ -368,19 +308,26 @@
             </div>
 
             <div className="p-4 border-t border-white/10 space-y-3">
-              <button onClick={() => { setModalType('patient'); setJsonInput(''); setJsonError(''); setIsModalOpen(true); }} className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg text-sm font-medium transition-colors">
+              <button onClick={() => { setModalType('patient'); setJsonInput(''); setJsonError(''); setIsModalOpen(true); }} className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-[#0040F9] hover:bg-blue-600 text-white rounded-lg text-sm font-medium transition-colors">
                 <IconPlus /> Novo Paciente
-              </button>
-              <button onClick={handleExport} className="w-full flex items-center justify-center gap-2 px-4 py-2 text-blue-200 hover:text-white text-xs transition-colors">
-                <IconDownload /> Exportar Backup JSON
               </button>
             </div>
           </div>
 
-          <div className="flex-1 flex flex-col h-full overflow-hidden">
+          {/* Área Principal */}
+          <div className="flex-1 flex flex-col h-full overflow-hidden bg-slate-50 print:bg-white print:h-auto print:overflow-visible print:block">
             {currentPatient ? (
               <>
-                <header className="bg-white px-8 py-6 border-b border-slate-200 flex justify-between items-start flex-shrink-0">
+                {/* Cabeçalho da Impressão (Só aparece no papel) */}
+                <div className="hidden print:block text-center mb-6 pb-4 border-b-2 border-slate-200">
+                  <h1 className="text-2xl font-bold text-slate-800 flex items-center justify-center gap-2">
+                    <IconActivity /> Instituto Elo de Saúde
+                  </h1>
+                  <p className="text-slate-500 mt-1">Relatório Clínico e Análise Laboratorial</p>
+                </div>
+
+                {/* Cabeçalho do Paciente */}
+                <header className="bg-white px-8 py-6 border-b border-slate-200 flex justify-between items-start flex-shrink-0 print:border-none print:p-0 print:mb-6">
                   <div>
                     <h2 className="text-2xl font-bold text-slate-800">{currentPatient.name}</h2>
                     <div className="flex items-center gap-4 mt-2 text-sm text-slate-500">
@@ -388,62 +335,76 @@
                       <span>{currentPatient.info}</span>
                     </div>
                   </div>
-                  <div className="flex items-center gap-3 bg-slate-100 p-1 rounded-lg">
-                    <button onClick={() => setActiveTab('painel')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${activeTab === 'painel' ? 'bg-white shadow text-[#0040F9]' : 'text-slate-500 hover:text-slate-700'}`}>Painel e Achados</button>
-                    <button onClick={() => setActiveTab('historico')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${activeTab === 'historico' ? 'bg-white shadow text-[#0040F9]' : 'text-slate-500 hover:text-slate-700'}`}>Gráficos</button>
+                  
+                  {/* Botões do Topo - Escondidos na Impressão */}
+                  <div className="flex items-center gap-3 print:hidden">
+                    <button onClick={handlePrint} className="flex items-center gap-2 px-4 py-2 bg-slate-800 text-white hover:bg-slate-700 rounded-lg text-sm font-medium transition-colors shadow-sm">
+                      <IconPrinter /> Imprimir Relatório
+                    </button>
+                    <div className="flex items-center bg-slate-100 p-1 rounded-lg">
+                      <button onClick={() => setActiveTab('painel')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${activeTab === 'painel' ? 'bg-white shadow text-[#0040F9]' : 'text-slate-500 hover:text-slate-700'}`}>Painel</button>
+                      <button onClick={() => setActiveTab('historico')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${activeTab === 'historico' ? 'bg-white shadow text-[#0040F9]' : 'text-slate-500 hover:text-slate-700'}`}>Gráficos</button>
+                    </div>
                   </div>
                 </header>
 
-                <div className="flex-1 overflow-y-auto p-8 bg-slate-50/50">
+                <div className="flex-1 overflow-y-auto p-8 print:p-0 print:overflow-visible">
+                  
                   {activeTab === 'painel' && currentSnapshot && (
-                    <div className="space-y-8 max-w-6xl mx-auto pb-10">
+                    <div className="space-y-8 max-w-6xl mx-auto pb-10 print:pb-0">
                       
-                      <div className="flex justify-between items-center bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex-wrap gap-4">
+                      {/* Seletor de Snapshot - Parcialmente escondido na impressão */}
+                      <div className="flex justify-between items-center bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex-wrap gap-4 print:border-none print:shadow-none print:p-0 print:mb-2">
                         <div className="flex gap-2 flex-wrap">
-                          {currentPatient.snapshots.map((snap, idx) => (
-                            <button key={idx} onClick={() => setSelectedSnapshotIdx(idx)} className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${selectedSnapshotIdx === idx ? 'bg-[#0040F9] text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
-                              {snap.label || new Date(snap.date).toLocaleDateString('pt-BR')}
-                            </button>
-                          ))}
+                          <h3 className="font-bold text-lg text-slate-800 hidden print:block border-l-4 border-[#0040F9] pl-3">
+                            Coleta de Referência: {currentSnapshot.label || new Date(currentSnapshot.date).toLocaleDateString('pt-BR')}
+                          </h3>
+                          <div className="print:hidden flex gap-2">
+                            {currentPatient.snapshots.map((snap, idx) => (
+                              <button key={idx} onClick={() => setSelectedSnapshotIdx(idx)} className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${selectedSnapshotIdx === idx ? 'bg-[#0040F9] text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
+                                {snap.label || new Date(snap.date).toLocaleDateString('pt-BR')}
+                              </button>
+                            ))}
+                          </div>
                         </div>
-                        <button onClick={() => { setModalType('snapshot'); setJsonInput(''); setJsonError(''); setIsModalOpen(true); }} className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-[#0040F9] hover:bg-blue-100 rounded-lg text-sm font-medium transition-colors">
+                        <button onClick={() => { setModalType('snapshot'); setJsonInput(''); setJsonError(''); setIsModalOpen(true); }} className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-[#0040F9] hover:bg-blue-100 rounded-lg text-sm font-medium transition-colors print:hidden">
                           <IconPlus /> Adicionar Exame
                         </button>
                       </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 print:grid-cols-4">
                         {currentSnapshot.metrics?.map((m, idx) => {
                           const isAltered = checkMetricStatus(m.value, m.refLow, m.refHigh) === 'altered';
                           return (
-                            <div key={idx} className={`p-4 rounded-xl border flex flex-col justify-between ${isAltered ? 'bg-[#B4650A]/5 border-[#B4650A]/30' : 'bg-white border-slate-200 shadow-sm'}`}>
+                            <div key={idx} className={`p-4 rounded-xl border flex flex-col justify-between print-break-inside-avoid ${isAltered ? 'bg-[#B4650A]/5 border-[#B4650A]/30 print:bg-white print:border-[#B4650A]' : 'bg-white border-slate-200 shadow-sm print:shadow-none'}`}>
                               <div className="flex justify-between items-start mb-2">
-                                <span className="text-sm font-medium text-slate-600">{m.label}</span>
+                                <span className="text-sm font-medium text-slate-600 print:text-slate-800">{m.label}</span>
                                 {isAltered && <div className="text-[#B4650A]"><IconAlert /></div>}
                               </div>
                               <div className="flex items-baseline gap-1 mt-1">
                                 <span className={`text-2xl font-bold ${isAltered ? 'text-[#B4650A]' : 'text-slate-800'}`}>{m.value}</span>
                                 <span className="text-xs text-slate-500 font-medium">{m.unit}</span>
                               </div>
-                              <div className="text-[10px] text-slate-400 mt-2">Ref: {m.refLow ?? '-'} ~ {m.refHigh ?? '-'}</div>
+                              <div className="text-[10px] text-slate-400 mt-2 print:text-slate-500">Ref: {m.refLow ?? '-'} ~ {m.refHigh ?? '-'}</div>
                             </div>
                           )
                         })}
                       </div>
 
-                      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 print:grid-cols-1 print:gap-4">
                         <div className="lg:col-span-2 space-y-6">
-                          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                            <div className="bg-slate-50 px-6 py-4 border-b border-slate-200">
-                              <h3 className="font-semibold text-slate-800 flex items-center gap-2"><IconFile /> Achados e Interpretação</h3>
+                          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden print:shadow-none">
+                            <div className="bg-slate-50 px-6 py-4 border-b border-slate-200 print:bg-white print:border-b-2 print:border-slate-800">
+                              <h3 className="font-semibold text-slate-800 flex items-center gap-2"><IconFile /> Achados e Interpretação Clínica</h3>
                             </div>
-                            <div className="divide-y divide-slate-100">
+                            <div className="divide-y divide-slate-100 print:divide-slate-300">
                               {currentSnapshot.findings?.map((f, idx) => (
-                                <div key={idx} className="p-6">
-                                  <span className="inline-block px-2.5 py-1 bg-slate-100 text-slate-600 text-xs font-semibold rounded-md mb-3">{f.group}</span>
+                                <div key={idx} className="p-6 print:p-4 print-break-inside-avoid">
+                                  <span className="inline-block px-2.5 py-1 bg-slate-100 text-slate-700 text-xs font-bold rounded-md mb-3 print:bg-transparent print:p-0 print:text-sm print:uppercase">{f.group}</span>
                                   <div className="space-y-3 text-sm">
                                     <div><strong className="text-slate-700">Achado:</strong> <span className="text-slate-600">{f.achado}</span></div>
                                     <div><strong className="text-slate-700">Hipótese:</strong> <span className="text-slate-600">{f.hipotese}</span></div>
-                                    <div className="bg-blue-50 p-3 rounded-lg mt-2 text-[#0040F9]"><strong className="block text-xs uppercase mb-1">Sugestão</strong>{f.sugestao}</div>
+                                    <div className="bg-blue-50 p-3 rounded-lg mt-2 text-[#0040F9] print:bg-white print:border print:border-slate-300 print:text-slate-800"><strong className="block text-xs uppercase mb-1">Sugestão de Conduta</strong>{f.sugestao}</div>
                                   </div>
                                 </div>
                               ))}
@@ -451,18 +412,35 @@
                           </div>
                         </div>
 
-                        <div className="space-y-6">
-                          <div className="bg-[#00113F] text-white rounded-xl p-6 shadow-md">
-                            <h3 className="font-semibold mb-4 text-blue-200 border-b border-white/20 pb-2">Síntese do Caso</h3>
-                            <ul className="list-disc pl-4 space-y-2 text-sm text-slate-100">{currentSnapshot.sintese?.map((s, i) => <li key={i}>{s}</li>)}</ul>
+                        <div className="space-y-6 print:space-y-4 print:grid print:grid-cols-2 print:gap-4">
+                          <div className="bg-[#00113F] text-white rounded-xl p-6 shadow-md print:bg-white print:border print:border-slate-300 print:text-slate-900 print:shadow-none print-break-inside-avoid">
+                            <h3 className="font-semibold mb-4 text-blue-200 border-b border-white/20 pb-2 print:text-slate-800 print:border-slate-300">Síntese do Caso</h3>
+                            <ul className="list-disc pl-4 space-y-2 text-sm text-slate-100 print:text-slate-700">{currentSnapshot.sintese?.map((s, i) => <li key={i}>{s}</li>)}</ul>
                           </div>
-                          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-                            <h3 className="font-semibold text-slate-800 mb-3 border-b border-slate-100 pb-2">Resumo Prontuário</h3>
-                            <p className="text-sm text-slate-600 leading-relaxed">{currentSnapshot.prontuario}</p>
+                          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 print:shadow-none print-break-inside-avoid">
+                            <h3 className="font-semibold text-slate-800 mb-3 border-b border-slate-100 pb-2 print:border-slate-300">Resumo Prontuário</h3>
+                            <p className="text-sm text-slate-600 leading-relaxed print:text-slate-700">{currentSnapshot.prontuario}</p>
                           </div>
-                          <div className="bg-amber-50 rounded-xl border border-amber-100 shadow-sm p-6">
-                            <h3 className="font-semibold text-[#B4650A] mb-3 border-b border-amber-200 pb-2">Comunicação Paciente</h3>
-                            <div className="space-y-2">{currentSnapshot.paciente?.map((p, i) => <p key={i} className="text-sm text-amber-900 leading-relaxed">"{p}"</p>)}</div>
+                          <div className="bg-amber-50 rounded-xl border border-amber-100 shadow-sm p-6 print:bg-white print:shadow-none print-break-inside-avoid print:col-span-2">
+                            <h3 className="font-semibold text-[#B4650A] mb-3 border-b border-amber-200 pb-2 print:text-slate-800 print:border-slate-300">Terapêutica</h3>
+                            <div className="space-y-4 flex flex-col md:flex-row md:space-y-0 md:gap-8">
+                              {currentSnapshot.terapeutica?.manipuladas?.length > 0 && (
+                                <div className="flex-1">
+                                  <strong className="text-xs uppercase text-slate-500">Fórmulas Manipuladas</strong>
+                                  <ul className="list-disc pl-4 mt-1 text-sm text-slate-700">
+                                    {currentSnapshot.terapeutica.manipuladas.map((item, i) => <li key={i}>{item}</li>)}
+                                  </ul>
+                                </div>
+                              )}
+                              {currentSnapshot.terapeutica?.comercializadas?.length > 0 && (
+                                <div className="flex-1">
+                                  <strong className="text-xs uppercase text-slate-500">Fármacos Comerciais</strong>
+                                  <ul className="list-disc pl-4 mt-1 text-sm text-slate-700">
+                                    {currentSnapshot.terapeutica.comercializadas.map((item, i) => <li key={i}>{item}</li>)}
+                                  </ul>
+                                </div>
+                              )}
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -470,12 +448,12 @@
                   )}
 
                   {activeTab === 'historico' && (
-                    <div className="max-w-6xl mx-auto space-y-6 pb-10">
-                      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-                        <h3 className="text-lg font-semibold text-slate-800 mb-2">Painel de Tendências</h3>
-                        <p className="text-sm text-slate-500 mb-6">Acompanhamento longitudinal de marcadores com múltiplos registros.</p>
+                    <div className="max-w-6xl mx-auto space-y-6 pb-10 print:pb-0">
+                      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 print:border-none print:p-0 print:shadow-none">
+                        <h3 className="text-lg font-bold text-slate-800 mb-2 border-l-4 border-[#0040F9] pl-3">Painel de Tendências (Gráficos)</h3>
+                        <p className="text-sm text-slate-500 mb-6 print:hidden">Acompanhamento longitudinal de marcadores. A faixa azul indica o limite de referência.</p>
                         {trendData.length > 0 ? (
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 print:grid-cols-2">
                             {trendData.map((metric, idx) => <SimpleLineChart key={idx} data={metric.data} metricName={metric.label} unit={metric.unit} />)}
                           </div>
                         ) : (
@@ -487,22 +465,19 @@
                 </div>
               </>
             ) : (
-              <div className="flex-1 flex items-center justify-center bg-slate-50 p-8 text-center">
+              <div className="flex-1 flex items-center justify-center bg-slate-50 p-8 text-center print:hidden">
                 <div className="max-w-md">
                   <div className="w-16 h-16 bg-blue-100 text-[#0040F9] rounded-full flex items-center justify-center mx-auto mb-4"><IconActivity /></div>
                   <h2 className="text-xl font-bold text-slate-700 mb-2">Nenhum paciente selecionado</h2>
-                  <p className="text-slate-500 mb-6 text-sm">Selecione um paciente na lista lateral ou cadastre um novo colando o JSON de análise clínica.</p>
-                  <div className="flex flex-col gap-3">
-                    <button onClick={() => { setModalType('patient'); setJsonInput(''); setJsonError(''); setIsModalOpen(true); }} className="w-full px-6 py-3 bg-[#0040F9] text-white rounded-lg font-medium shadow-md hover:bg-blue-700 transition-colors">+ Novo Paciente</button>
-                    <button onClick={() => saveToCloud(SEED_PATIENT)} className="w-full px-6 py-3 bg-white text-[#0040F9] border border-blue-200 rounded-lg font-medium shadow-sm hover:bg-blue-50 transition-colors">Carregar Dados de Demonstração</button>
-                  </div>
+                  <p className="text-slate-500 mb-6 text-sm">Selecione um paciente na lista lateral para visualizar ou imprimir seu relatório.</p>
                 </div>
               </div>
             )}
           </div>
 
+          {/* Modal - Escondido na impressão */}
           {isModalOpen && (
-            <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4 print:hidden">
               <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
                 <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-[#00113F] text-white">
                   <h3 className="text-lg font-bold">{modalType === 'patient' ? 'Importar Novo Paciente' : 'Importar Exame'}</h3>
