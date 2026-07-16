@@ -7,6 +7,7 @@ Uso:
   python3 painel.py exame.pdf
   python3 painel.py lab1.pdf lab2.pdf --paciente "Maria Silva"
   python3 painel.py exame.pdf --salvar resultado.json
+  python3 painel.py exame.pdf --sem-notion   (pula atualização do Notion)
 """
 
 import sys
@@ -28,19 +29,16 @@ if env_file.exists():
 # ── Verificação de dependências ───────────────────────────────────────────────
 def check_deps():
     missing = []
-    try:
-        import pdfplumber  # noqa
-    except ImportError:
-        missing.append("pdfplumber")
-    try:
-        import anthropic  # noqa
-    except ImportError:
-        missing.append("anthropic")
+    for pkg in ("pdfplumber", "anthropic", "requests"):
+        try:
+            __import__(pkg)
+        except ImportError:
+            missing.append(pkg)
     if missing:
         print(f"\n❌  Dependências faltando. Instale com:\n\n    pip3 install {' '.join(missing)}\n")
         sys.exit(1)
 
-# ── System prompt (instrução clínica + schema) ────────────────────────────────
+# ── System prompt clínico ─────────────────────────────────────────────────────
 SYSTEM_PROMPT = """Você é o assistente clínico do Dr. Gustavo Avelar, médico especializado em
 endocrinologia e nutrologia no Instituto Elo de Saúde (IES), Uruaçu/GO.
 
@@ -60,7 +58,7 @@ Seu trabalho é interpretar exames laboratoriais e gerar dois produtos simultân
 - (só se houver achado que exige ação imediata; omitir seção inteira se não houver)
 
 ### Exames sem alteração relevante
-(lista em uma linha: Hemograma, Tireoide, Função renal... etc.)
+(lista em uma linha)
 
 ```json
 { ... JSON completo aqui ... }
@@ -68,16 +66,16 @@ Seu trabalho é interpretar exames laboratoriais e gerar dois produtos simultân
 
 ━━ REGRAS PARA O JSON ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-**Schema paciente novo (primeira avaliação):**
+Schema paciente novo:
 {
-  "patientId": "nome-sobrenome-em-kebab-case",
+  "patientId": "nome-sobrenome-kebab-case",
   "name": "Nome Completo",
   "prontuario": "número ou vazio",
-  "info": "DN DD/MM/AAAA (XXa) · Sexo · peso kg / altura m / IMC X · contexto clínico",
+  "info": "DN DD/MM/AAAA (XXa) · Sexo · contexto clínico 1 linha",
   "snapshots": [ { snapshot } ]
 }
 
-**Schema do snapshot:**
+Schema do snapshot:
 {
   "date": "AAAA-MM-DD",
   "label": "Coleta DD/MM/AAAA",
@@ -85,34 +83,129 @@ Seu trabalho é interpretar exames laboratoriais e gerar dois produtos simultân
     { "key": "KEY", "label": "Nome", "value": 0.0, "unit": "unidade", "refLow": null, "refHigh": null }
   ],
   "findings": [
-    { "group": "Nome do grupo", "achado": "...", "hipotese": "...", "sugestao": "..." }
+    { "group": "Grupo", "achado": "1-3 frases.", "hipotese": "1-3 frases.", "sugestao": "1-3 frases." }
   ],
-  "sintese": ["bullet 1", "bullet 2", "bullet 3"],
+  "sintese": ["bullet 1", "bullet 2"],
   "terapeutica": { "manipuladas": ["..."], "comercializadas": ["..."] }
 }
 
-**Regras:**
+Regras:
 - refLow/refHigh: copie EXATAMENTE do laudo — nunca invente.
-- value: número puro (sem unidade, sem texto).
-- Primeira avaliação: inclua TODOS os marcadores numéricos do laudo (baseline).
-- Retorno: inclua só marcadores alterados + os já monitorados antes.
-- findings: só grupos com achado relevante. Grupos normais → finding único:
-  {"group":"Exames sem alteração","achado":"Hemograma, tireoide, ferro — normais.","hipotese":"","sugestao":"Manutenção e monitoramento de rotina."}
-- achado/hipotese/sugestao: máximo 3 frases cada. Sem repetição entre si.
-- NÃO inclua "prontuario" nem "paciente" no snapshot (omitir por padrão para economizar tokens).
-- sintese: máximo 7 bullets, do mais para o menos urgente.
+- Primeira avaliação: inclua TODOS os marcadores numéricos (baseline completo).
+- Retorno: inclua só marcadores alterados + os já presentes no histórico.
+- Grupos normais: finding único {"group":"Exames sem alteração","achado":"...normais.","hipotese":"","sugestao":"Manutenção de rotina."}
+- Cada campo achado/hipotese/sugestao: máximo 3 frases.
+- NÃO inclua "prontuario" nem "paciente" no snapshot.
+- sintese: máximo 7 bullets, do mais para o menos urgente. Prefixe com ⚠️ os urgentes.
 
-**Keys canônicas (use sempre estas, nunca invente novas para os mesmos marcadores):**
-TSH, T4L, T3, T3L, ANTI_TPO, TRAB | FSH, LH, PROLACTINA, ESTRADIOL, PROGESTERONA,
-TESTO_TOTAL, TESTO_LIVRE, DHT, SHBG | GLICEMIA, HBA1C, INSULINA, HOMA_IR |
-COL_TOTAL, HDL, LDL, VLDL, TG, APOLIPOPROTEINA_A1, APOLIPOPROTEINA_B |
-HB, HT, LEUCOCITOS, PLAQUETAS, RDW, PCR, VHS |
-VITD, B12, VITAMINA_B6, ACIDO_FOLICO, HOMOCISTEINA, PTH |
-FERRITINA, FERRO, SAT_TRANSFERRINA, TRANSFERRINA |
-CREATININA, UREIA, TGO, TGP, GGT, FA, PROTEINAS_TOTAIS, ALBUMINA |
-SODIO, POTASSIO, CALCIO, CALCIO_IONICO, MAGNESIO, ACIDO_URICO
+Keys canônicas: TSH, T4L, T3, T3L, ANTI_TPO, TRAB | FSH, LH, PROLACTINA, ESTRADIOL,
+PROGESTERONA, TESTO_TOTAL, TESTO_LIVRE, DHT, SHBG | GLICEMIA, HBA1C, INSULINA, HOMA_IR |
+COL_TOTAL, HDL, LDL, VLDL, TG, APOLIPOPROTEINA_A1, APOLIPOPROTEINA_B | HB, HT, LEUCOCITOS,
+PLAQUETAS, RDW, PCR, VHS | VITD, B12, VITAMINA_B6, ACIDO_FOLICO, HOMOCISTEINA, PTH |
+FERRITINA, FERRO, SAT_TRANSFERRINA, TRANSFERRINA | CREATININA, UREIA, TGO, TGP, GGT, FA,
+PROTEINAS_TOTAIS, ALBUMINA | SODIO, POTASSIO, CALCIO, CALCIO_IONICO, MAGNESIO, ACIDO_URICO
 
 Responda SEMPRE em português do Brasil. Tom técnico e conciso."""
+
+# ── Notion ────────────────────────────────────────────────────────────────────
+NOTION_DB_ID = "8b7b657c-2aa6-4f46-b9e8-cc64d7b4ad2e"
+NOTION_API = "https://api.notion.com/v1"
+
+def _notion_headers(token: str) -> dict:
+    return {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+        "Notion-Version": "2022-06-28",
+    }
+
+def _rich_text(text: str) -> list:
+    if not text:
+        return []
+    # Notion rich_text blocks have a 2000-char limit each
+    return [{"text": {"content": text[:2000]}}]
+
+def _find_patient(name: str, token: str) -> str | None:
+    import requests
+    first = name.split()[0]
+    resp = requests.post(
+        f"{NOTION_API}/databases/{NOTION_DB_ID}/query",
+        json={"filter": {"property": "Nome", "title": {"contains": first}}},
+        headers=_notion_headers(token),
+        timeout=15,
+    )
+    if resp.status_code != 200:
+        return None
+    name_lower = name.lower()
+    for page in resp.json().get("results", []):
+        title_parts = page.get("properties", {}).get("Nome", {}).get("title", [])
+        page_name = "".join(t.get("plain_text", "") for t in title_parts).lower()
+        if name_lower in page_name or page_name in name_lower:
+            return page["id"]
+    return None
+
+def update_notion(patient: dict, token: str):
+    import requests
+
+    name = patient.get("name", "")
+    if not name:
+        print("⚠️   Notion: nome do paciente não encontrado no JSON — pulando.")
+        return
+
+    snapshots = patient.get("snapshots", [])
+    snap = snapshots[-1] if snapshots else {}
+    sintese = snap.get("sintese", [])
+    date = snap.get("date", "")
+
+    # Campos derivados do snapshot
+    principais = "\n".join(sintese[:5])
+    alertas = "\n".join(s for s in sintese if "⚠" in s)
+
+    # Exames pendentes: extrai frases de sugestão com verbos de pedido
+    pendentes = []
+    verbos = ("solicitar", "repetir", "complementar", "pedir", "encaminhar", "aguardar")
+    for f in snap.get("findings", []):
+        for frase in f.get("sugestao", "").split("."):
+            if any(v in frase.lower() for v in verbos) and frase.strip():
+                pendentes.append(frase.strip())
+    pendentes_text = ". ".join(pendentes[:6])
+
+    props = {
+        "Principais alterações IA": {"rich_text": _rich_text(principais)},
+    }
+    if date:
+        props["Último exame IA"] = {"date": {"start": date}}
+    if alertas:
+        props["Alertas IA"] = {"rich_text": _rich_text(alertas)}
+    if pendentes_text:
+        props["Exames pendentes"] = {"rich_text": _rich_text(pendentes_text)}
+
+    page_id = _find_patient(name, token)
+
+    if page_id:
+        resp = requests.patch(
+            f"{NOTION_API}/pages/{page_id}",
+            json={"properties": props},
+            headers=_notion_headers(token),
+            timeout=15,
+        )
+        if resp.status_code == 200:
+            print(f"✅  Notion atualizado: {name}")
+        else:
+            print(f"⚠️   Notion erro ao atualizar ({resp.status_code}): {resp.text[:200]}")
+    else:
+        props["Nome"] = {"title": [{"text": {"content": name}}]}
+        props["Status"] = {"select": {"name": "Ativo"}}
+        props["Observação curta"] = {"rich_text": _rich_text("Cadastro automático via painel.py")}
+        resp = requests.post(
+            f"{NOTION_API}/pages",
+            json={"parent": {"database_id": NOTION_DB_ID}, "properties": props},
+            headers=_notion_headers(token),
+            timeout=15,
+        )
+        if resp.status_code == 200:
+            print(f"✅  Notion: novo paciente criado — {name}")
+        else:
+            print(f"⚠️   Notion erro ao criar ({resp.status_code}): {resp.text[:200]}")
 
 # ── Extração de texto dos PDFs ────────────────────────────────────────────────
 def extract_pdf_text(pdf_path: str) -> str:
@@ -125,14 +218,13 @@ def extract_pdf_text(pdf_path: str) -> str:
                 pages.append(text)
     return "\n\n".join(pages)
 
-# ── Chamada à API ─────────────────────────────────────────────────────────────
+# ── Chamada à API Claude ──────────────────────────────────────────────────────
 def analyze(pdf_paths: list, patient_name: str, model: str) -> str:
     import anthropic
 
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
-        print("\n❌  Chave da API não encontrada.")
-        print("    Adicione ANTHROPIC_API_KEY=sua_chave no arquivo .env\n")
+        print("\n❌  ANTHROPIC_API_KEY não encontrada no .env\n")
         sys.exit(1)
 
     print("📄  Extraindo texto dos PDFs...")
@@ -145,15 +237,14 @@ def analyze(pdf_paths: list, patient_name: str, model: str) -> str:
         print(f"    → {p.name}")
         text = extract_pdf_text(str(p))
         if not text.strip():
-            print(f"⚠️   Nenhum texto extraído de {p.name} — verifique se o PDF não é uma imagem escaneada.")
-        parts.append(f"=== ARQUIVO: {p.name} ===\n{text}")
+            print(f"⚠️   Nenhum texto extraído de {p.name} (PDF escaneado?)")
+        parts.append(f"=== {p.name} ===\n{text}")
 
-    combined = "\n\n".join(parts)
     patient_line = f"Nome do paciente: {patient_name}\n\n" if patient_name else ""
     user_msg = (
         f"{patient_line}"
         f"Analise os exames abaixo e gere a tabela de alterações + JSON para o Painel Clínico IES.\n\n"
-        f"{combined}"
+        + "\n\n".join(parts)
     )
 
     print(f"🤖  Analisando com {model}...")
@@ -164,62 +255,78 @@ def analyze(pdf_paths: list, patient_name: str, model: str) -> str:
         system=SYSTEM_PROMPT,
         messages=[{"role": "user", "content": user_msg}],
     )
-
     usage = response.usage
     print(f"✅  Tokens: {usage.input_tokens} entrada + {usage.output_tokens} saída")
-
     return response.content[0].text
 
-# ── Salvar JSON extraído ──────────────────────────────────────────────────────
-def save_json(result: str, output_path: str):
+# ── Extrai JSON da resposta ───────────────────────────────────────────────────
+def extract_json(result: str) -> dict | None:
     match = re.search(r"```json\n(.*?)```", result, re.DOTALL)
     if not match:
-        print("\n⚠️   JSON não encontrado na resposta — salve manualmente do output acima.")
-        return
-    json_text = match.group(1).strip()
+        return None
     try:
-        parsed = json.loads(json_text)
-        with open(output_path, "w", encoding="utf-8") as f:
-            json.dump(parsed, f, ensure_ascii=False, indent=2)
-        print(f"\n💾  JSON salvo em: {output_path}")
+        return json.loads(match.group(1).strip())
     except json.JSONDecodeError as e:
-        print(f"\n⚠️   JSON gerado é inválido: {e}")
-        print("     Copie manualmente o bloco ```json``` do output acima.")
+        print(f"⚠️   JSON inválido: {e}")
+        return None
+
+# ── Salva JSON em arquivo ─────────────────────────────────────────────────────
+def save_json_file(data: dict, path: str):
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    print(f"💾  JSON salvo em: {path}")
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main():
     check_deps()
 
     parser = argparse.ArgumentParser(
-        description="Analisa exames laboratoriais e gera JSON para o Painel Clínico IES",
+        description="Analisa exames e gera JSON para o Painel Clínico IES + atualiza Notion",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 exemplos:
   python3 painel.py exame.pdf
   python3 painel.py lab1.pdf lab2.pdf --paciente "Maria Silva"
   python3 painel.py exame.pdf --salvar resultado.json
-  python3 painel.py exame.pdf --modelo claude-haiku-4-5-20251001   # mais barato
+  python3 painel.py exame.pdf --sem-notion
+  python3 painel.py exame.pdf --modelo claude-haiku-4-5-20251001
         """,
     )
-    parser.add_argument("pdfs", nargs="+", help="PDF(s) dos exames (um ou mais arquivos)")
-    parser.add_argument("--paciente", default=None, help="Nome do paciente (opcional)")
-    parser.add_argument("--salvar", default=None, help="Salvar o JSON em arquivo (ex: resultado.json)")
+    parser.add_argument("pdfs", nargs="+", help="PDF(s) dos exames")
+    parser.add_argument("--paciente", default=None, help="Nome do paciente")
+    parser.add_argument("--salvar", default=None, help="Salvar JSON em arquivo (ex: resultado.json)")
+    parser.add_argument("--sem-notion", action="store_true", help="Pular atualização do Notion")
     parser.add_argument(
         "--modelo",
         default="claude-sonnet-4-6",
-        help="Modelo Claude a usar (padrão: claude-sonnet-4-6 | barato: claude-haiku-4-5-20251001)",
+        help="Modelo Claude (padrão: claude-sonnet-4-6 | barato: claude-haiku-4-5-20251001)",
     )
     args = parser.parse_args()
 
+    # Análise
     result = analyze(args.pdfs, args.paciente, args.modelo)
 
-    sep = "─" * 60
-    print(f"\n{sep}\n")
+    print(f"\n{'─'*60}\n")
     print(result)
-    print(f"\n{sep}")
+    print(f"\n{'─'*60}")
 
-    if args.salvar:
-        save_json(result, args.salvar)
+    # Extrai JSON da resposta
+    patient_data = extract_json(result)
+
+    # Salva JSON em arquivo se pedido
+    if args.salvar and patient_data:
+        save_json_file(patient_data, args.salvar)
+    elif args.salvar:
+        print("⚠️   Não foi possível extrair o JSON para salvar.")
+
+    # Atualiza Notion automaticamente
+    if not args.sem_notion and patient_data:
+        notion_token = os.environ.get("NOTION_API_KEY")
+        if notion_token:
+            print("📋  Atualizando Notion...")
+            update_notion(patient_data, notion_token)
+        else:
+            print("ℹ️   NOTION_API_KEY não configurada — pulando Notion.")
 
 if __name__ == "__main__":
     main()
