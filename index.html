@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Painel Clínico IES</title>
+  <title>Painel Clínico IES - Premium</title>
   
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
@@ -32,11 +32,14 @@
     ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
     ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
     
+    /* Configurações perfeitas para impressão em PDF/Papel */
     @media print {
       @page { margin: 1cm; }
       body { -webkit-print-color-adjust: exact; print-color-adjust: exact; background-color: white !important; }
       .print-break-inside-avoid { break-inside: avoid; page-break-inside: avoid; }
       .shadow-sm, .shadow-md, .shadow-xl { box-shadow: none !important; border: 1px solid #e2e8f0 !important; }
+      /* Esconder barra de rolagem na impressão */
+      ::-webkit-scrollbar { display: none; }
     }
     
     /* Animação suave para o toast de notificação */
@@ -246,7 +249,7 @@
             setCopyStatus(true);
             setTimeout(() => setCopyStatus(false), 2500);
           }).catch(err => {
-            // Fallback for older browsers
+            // Fallback para navegadores antigos
             const textArea = document.createElement("textarea");
             textArea.value = currentSnapshot.prontuario;
             document.body.appendChild(textArea);
@@ -377,6 +380,7 @@
           <div className="flex-1 flex flex-col h-full overflow-hidden bg-slate-50 print:bg-white print:h-auto print:overflow-visible print:block">
             {currentPatient ? (
               <>
+                {/* Cabeçalho exclusivo para Impressão */}
                 <div className="hidden print:block text-center mb-6 pb-4 border-b-2 border-slate-200">
                   <h1 className="text-2xl font-bold text-slate-800 flex items-center justify-center gap-2">
                     <IconActivity /> Instituto Elo de Saúde
@@ -393,7 +397,7 @@
                     </div>
                   </div>
                   
-                  {/* Botões de Ação do Header (Ocultos na impressão) */}
+                  {/* Feature Premium: Botão de Imprimir */}
                   <div className="flex items-center gap-3 print:hidden">
                     <button onClick={handlePrint} className="flex items-center gap-2 px-4 py-2 bg-slate-800 text-white hover:bg-slate-700 rounded-lg text-sm font-medium transition-colors shadow-sm focus:ring-2 focus:ring-offset-2 focus:ring-slate-800">
                       <IconPrinter /> Imprimir Relatório
@@ -470,7 +474,7 @@
                           </div>
                         </div>
 
-                        {}
+                        {/* Coluna da Direita */}
                         <div className="space-y-6 print:space-y-4 print:grid print:grid-cols-2 print:gap-4">
                           <div className="bg-[#00113F] text-white rounded-xl p-6 shadow-md print:bg-white print:border print:border-slate-300 print:text-slate-900 print:shadow-none print-break-inside-avoid relative overflow-hidden">
                             <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/10 rounded-full blur-2xl -mr-10 -mt-10"></div>
@@ -541,7 +545,7 @@
                 </div>
               </>
             ) : (
-              // Empty State Elegante
+              // Empty State
               <div className="flex-1 flex items-center justify-center bg-slate-50 p-8 text-center print:hidden">
                 <div className="max-w-md">
                   <div className="w-20 h-20 bg-blue-100 text-[#0040F9] rounded-full flex items-center justify-center mx-auto mb-6 shadow-sm"><IconActivity /></div>
@@ -589,4 +593,4 @@
     root.render(<PainelClinico />);
   </script>
 </body>
-</html> 
+</html>
