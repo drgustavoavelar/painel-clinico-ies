@@ -21,7 +21,7 @@ var CONFIG = {
   PASTA_ERROS:       'IES · Erros de Análise',
   NOTION_DB_NAME:    'Pacientes em Acompanhamento',
   EMAIL_NOTIF:       'dr.gustavoavelar@gmail.com',
-  MODELO_CLAUDE:     'claude-sonnet-4-6',
+  MODELO_CLAUDE:     'claude-haiku-4-5-20251001',
   MAX_PDF_BYTES:     8 * 1024 * 1024,   // 8 MB — limite seguro para UrlFetchApp
 };
 
