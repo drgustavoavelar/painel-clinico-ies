@@ -108,8 +108,8 @@ PROTEINAS_TOTAIS, ALBUMINA | SODIO, POTASSIO, CALCIO, CALCIO_IONICO, MAGNESIO, A
 Responda SEMPRE em português do Brasil. Tom técnico e conciso."""
 
 # ── Notion ────────────────────────────────────────────────────────────────────
-NOTION_DB_ID = "8b7b657c-2aa6-4f46-b9e8-cc64d7b4ad2e"
 NOTION_API = "https://api.notion.com/v1"
+NOTION_DB_NAME = "Pacientes em Acompanhamento"
 
 def _notion_headers(token: str) -> dict:
     return {
@@ -121,14 +121,31 @@ def _notion_headers(token: str) -> dict:
 def _rich_text(text: str) -> list:
     if not text:
         return []
-    # Notion rich_text blocks have a 2000-char limit each
     return [{"text": {"content": text[:2000]}}]
 
-def _find_patient(name: str, token: str) -> str | None:
+def _find_database(token: str) -> str | None:
+    """Busca o banco 'Pacientes em Acompanhamento' pelo nome via search API."""
+    import requests
+    resp = requests.post(
+        f"{NOTION_API}/search",
+        json={"query": NOTION_DB_NAME, "filter": {"value": "database", "property": "object"}},
+        headers=_notion_headers(token),
+        timeout=15,
+    )
+    if resp.status_code != 200:
+        return None
+    for db in resp.json().get("results", []):
+        title_parts = db.get("title", [])
+        title = "".join(t.get("plain_text", "") for t in title_parts)
+        if NOTION_DB_NAME.lower() in title.lower():
+            return db["id"]
+    return None
+
+def _find_patient(name: str, db_id: str, token: str) -> str | None:
     import requests
     first = name.split()[0]
     resp = requests.post(
-        f"{NOTION_API}/databases/{NOTION_DB_ID}/query",
+        f"{NOTION_API}/databases/{db_id}/query",
         json={"filter": {"property": "Nome", "title": {"contains": first}}},
         headers=_notion_headers(token),
         timeout=15,
@@ -151,16 +168,20 @@ def update_notion(patient: dict, token: str):
         print("⚠️   Notion: nome do paciente não encontrado no JSON — pulando.")
         return
 
+    # Localizar o banco de dados pelo nome
+    db_id = _find_database(token)
+    if not db_id:
+        print(f"⚠️   Notion: banco '{NOTION_DB_NAME}' não encontrado. Verifique se a integração 'Painel IES' tem acesso a ele.")
+        return
+
     snapshots = patient.get("snapshots", [])
     snap = snapshots[-1] if snapshots else {}
     sintese = snap.get("sintese", [])
     date = snap.get("date", "")
 
-    # Campos derivados do snapshot
     principais = "\n".join(sintese[:5])
     alertas = "\n".join(s for s in sintese if "⚠" in s)
 
-    # Exames pendentes: extrai frases de sugestão com verbos de pedido
     pendentes = []
     verbos = ("solicitar", "repetir", "complementar", "pedir", "encaminhar", "aguardar")
     for f in snap.get("findings", []):
@@ -179,7 +200,7 @@ def update_notion(patient: dict, token: str):
     if pendentes_text:
         props["Exames pendentes"] = {"rich_text": _rich_text(pendentes_text)}
 
-    page_id = _find_patient(name, token)
+    page_id = _find_patient(name, db_id, token)
 
     if page_id:
         resp = requests.patch(
@@ -198,7 +219,7 @@ def update_notion(patient: dict, token: str):
         props["Observação curta"] = {"rich_text": _rich_text("Cadastro automático via painel.py")}
         resp = requests.post(
             f"{NOTION_API}/pages",
-            json={"parent": {"database_id": NOTION_DB_ID}, "properties": props},
+            json={"parent": {"database_id": db_id}, "properties": props},
             headers=_notion_headers(token),
             timeout=15,
         )
