@@ -100,22 +100,40 @@
   /* ── Impressão ── */
   @media print {
     * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+    html, body { margin: 0; padding: 0; }
     .toolbar, #tabs, .modal-bg, footer, #btnPrint { display: none !important; }
-    header { padding: 16px 24px; }
-    header h1 { font-size: 18px; }
+    header {
+      padding: 12px 18px; margin: 0; position: relative;
+      page-break-after: avoid;
+    }
+    header h1 { font-size: 16px; margin: 2px 0; }
+    header .brand { font-size: 11px; }
+    header .sub { font-size: 12px; margin-top: 2px; }
     body { font-size: 12px; background: #fff; }
-    main { padding: 12px 20px 30px; max-width: 100%; }
+    main { padding: 8px 18px 20px; max-width: 100%; margin: 0; }
     .tab-panel { display: block !important; }
-    .card { margin-bottom: 14px; padding: 14px 16px; break-inside: avoid; page-break-inside: avoid; }
-    .card h2 { font-size: 13px; margin-bottom: 8px; }
-    .metric-grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px; }
-    .metric { padding: 8px 10px; }
-    .metric .val { font-size: 15px; }
-    .chart-wrap { height: 160px !important; }
-    .chart-grid { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
-    .finding { padding: 6px 10px; margin-bottom: 8px; }
-    .print-section-break { break-before: page; page-break-before: always; }
-    .print-date { font-size: 11px; color: #667; margin-top: 2px; }
+    .card {
+      margin-bottom: 10px; padding: 10px 14px; break-inside: avoid; page-break-inside: avoid;
+      break-after: auto;
+    }
+    .card h2 { font-size: 12px; margin: 0 0 6px; padding-bottom: 4px; }
+    .patient-meta { font-size: 12px; gap: 4px 18px; }
+    .metric-grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 6px; }
+    .metric { padding: 6px 8px; }
+    .metric .name { font-size: 11px; }
+    .metric .val { font-size: 14px; }
+    .metric .ref { font-size: 10px; }
+    .chart-wrap { height: 140px !important; break-inside: avoid; }
+    .chart-grid { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; }
+    .finding { padding: 5px 8px; margin-bottom: 6px; font-size: 11px; }
+    .finding .exame { font-size: 11px; }
+    .tag { font-size: 10px; padding: 1px 5px; }
+    ul.plain { margin: 4px 0; padding-left: 16px; }
+    ul.plain li { margin-bottom: 3px; font-size: 11px; }
+    .print-section-break { page-break-before: always; margin-top: 0; padding-top: 0; break-before: page; }
+    .print-date { font-size: 10px; }
+    .snap-list { gap: 6px; margin-top: 4px; }
+    .snap-chip { font-size: 10px; padding: 2px 6px; }
   }
 </style>
 </head>
