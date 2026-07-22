@@ -247,6 +247,27 @@
   </div>
 </div>
 
+<div class="modal-bg" id="reviewBg">
+  <div class="modal" style="width: 900px; max-width: 95vw;">
+    <h3>⚠️ Conferência clínica obrigatória</h3>
+    <p class="hint" style="color: var(--ambar)">Valores com variação >30% devem ser revisados. Confirme que estão corretos antes de salvar.</p>
+    <div id="reviewTable" style="max-height: 400px; overflow-y: auto; border: 1px solid var(--cinza-borda); padding: 12px; border-radius: 8px; background: var(--cinza-bg); margin-bottom: 12px; font-size: 12px;">
+      <!-- preenchido dinamicamente -->
+    </div>
+    <div style="background: var(--ambar-bg); border-left: 4px solid var(--ambar); padding: 10px; border-radius: 4px; margin-bottom: 12px;">
+      <strong style="color: var(--ambar)">Confirmação:</strong>
+      <label style="display: block; margin-top: 8px;">
+        <input type="checkbox" id="confirmReview" style="margin-right: 8px;">
+        Confirmo que revisei os dados e os valores estão corretos
+      </label>
+    </div>
+    <div class="modal-actions">
+      <button class="secondary" id="btnRejectReview">Cancelar</button>
+      <button id="btnApproveReview" disabled>✓ Confirmar e salvar</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const STORAGE_KEY = "ies_painel_clinico_v1";
 
@@ -462,28 +483,116 @@ document.getElementById("btnSchema").addEventListener("click", () => {
   document.getElementById("jsonInput").value = JSON.stringify(SCHEMA_EXAMPLE, null, 2);
 });
 
+function compareMetrics(oldMetrics, newMetrics) {
+  const diffs = [];
+  const oldMap = {};
+  const newMap = {};
+  (oldMetrics || []).forEach(m => { oldMap[m.key] = m; });
+  (newMetrics || []).forEach(m => { newMap[m.key] = m; });
+
+  // Detecta mudanças
+  Object.keys(newMap).forEach(key => {
+    const oldM = oldMap[key];
+    if (!oldM) return; // novo marcador, sem problema
+    const pctChange = Math.abs(oldM.value - newM.value) / oldM.value * 100;
+    if (pctChange > 30) {
+      diffs.push({
+        key: key,
+        label: newM.label,
+        old: oldM.value,
+        new: newM.value,
+        unit: newM.unit,
+        pctChange: pctChange.toFixed(1)
+      });
+    }
+  });
+  return diffs;
+}
+
+function showReviewModal(parsed) {
+  const existingPatient = DB.patients[parsed.patientId || currentPatientId];
+  const isNewPatient = !existingPatient;
+  const isNewSnapshot = parsed.date && parsed.metrics && !parsed.snapshots;
+
+  let diffs = [];
+  if (!isNewPatient && isNewSnapshot) {
+    const latestSnap = existingPatient.snapshots[existingPatient.snapshots.length - 1];
+    diffs = compareMetrics(latestSnap.metrics, parsed.metrics);
+  }
+
+  const review = document.getElementById("reviewTable");
+  if (diffs.length === 0) {
+    review.innerHTML = `<div style="text-align:center;color:#667"><em>Sem variações > 30% detectadas. Prossiga com segurança.</em></div>`;
+  } else {
+    let html = `<table style="width:100%;border-collapse:collapse;">
+      <thead style="background:var(--azul-esc);color:var(--branco);position:sticky;top:0;">
+        <tr><th style="padding:6px;text-align:left">Marcador</th><th style="text-align:right">Valor anterior</th><th style="text-align:right">Valor novo</th><th style="text-align:right">Variação</th></tr>
+      </thead>
+      <tbody>`;
+    diffs.forEach(d => {
+      html += `<tr style="border-bottom:1px solid var(--cinza-borda);">
+        <td style="padding:6px"><strong>${d.label}</strong></td>
+        <td style="text-align:right">${d.old} ${d.unit}</td>
+        <td style="text-align:right;background:var(--ambar-bg);font-weight:700"><strong>${d.new} ${d.unit}</strong></td>
+        <td style="text-align:right;color:var(--ambar)"><strong>${d.pctChange}%</strong></td>
+      </tr>`;
+    });
+    html += `</tbody></table>`;
+    review.innerHTML = html;
+  }
+
+  // Limpa checkbox e desabilita botão
+  document.getElementById("confirmReview").checked = false;
+  document.getElementById("btnApproveReview").disabled = true;
+
+  // Armazena dados para salvar após aprovação
+  window._pendingParsed = parsed;
+
+  document.getElementById("modalBg").classList.remove("open");
+  document.getElementById("reviewBg").classList.add("open");
+}
+
+document.getElementById("confirmReview").addEventListener("change", (e) => {
+  document.getElementById("btnApproveReview").disabled = !e.target.checked;
+});
+
+document.getElementById("btnApproveReview").addEventListener("click", () => {
+  const parsed = window._pendingParsed;
+
+  if (parsed.patientId && parsed.snapshots) {
+    DB.patients[parsed.patientId] = parsed;
+    currentPatientId = parsed.patientId;
+  } else if (parsed.date && parsed.metrics) {
+    if (!DB.patients[currentPatientId]) { alert("Nenhum paciente selecionado."); return; }
+    DB.patients[currentPatientId].snapshots.push(parsed);
+  }
+
+  saveDB(DB);
+  populatePatientSelect();
+  document.getElementById("reviewBg").classList.remove("open");
+  render();
+  alert("✅ Dados salvos com sucesso após conferência clínica.");
+});
+
+document.getElementById("btnRejectReview").addEventListener("click", () => {
+  document.getElementById("reviewBg").classList.remove("open");
+  document.getElementById("modalBg").classList.add("open");
+  window._pendingParsed = null;
+});
+
 document.getElementById("btnSaveModal").addEventListener("click", () => {
   const raw = document.getElementById("jsonInput").value.trim();
   if (!raw) { alert("Cole um JSON válido antes de salvar."); return; }
   let parsed;
   try { parsed = JSON.parse(raw); } catch(e) { alert("JSON inválido: " + e.message); return; }
 
-  if (parsed.patientId && parsed.snapshots) {
-    // Full patient object -> create or replace patient
-    DB.patients[parsed.patientId] = parsed;
-    currentPatientId = parsed.patientId;
-  } else if (parsed.date && parsed.metrics) {
-    // Single snapshot -> append to current patient
-    if (!DB.patients[currentPatientId]) { alert("Nenhum paciente selecionado."); return; }
-    DB.patients[currentPatientId].snapshots.push(parsed);
-  } else {
+  if (!parsed.patientId && !parsed.date) {
     alert("Formato não reconhecido. Use 'Ver schema' para o modelo esperado.");
     return;
   }
-  saveDB(DB);
-  populatePatientSelect();
-  document.getElementById("modalBg").classList.remove("open");
-  render();
+
+  // Abre a conferência clínica em vez de salvar direto
+  showReviewModal(parsed);
 });
 
 document.getElementById("btnExport").addEventListener("click", () => {
