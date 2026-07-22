@@ -98,6 +98,7 @@
   footer { text-align: center; font-size: 11px; color: #99a; padding: 20px; }
 
   /* ── Impressão ── */
+  @page { size: A4; margin: 12mm 10mm; }
   @media print {
     * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
     html, body { margin: 0; padding: 0; }
@@ -123,8 +124,14 @@
     .metric .name { font-size: 11px; }
     .metric .val { font-size: 14px; }
     .metric .ref { font-size: 10px; }
-    .chart-wrap { height: 140px !important; break-inside: avoid; }
-    .chart-grid { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; }
+    .chart-wrap { height: 220px !important; break-inside: avoid; }
+    .chart-grid { grid-template-columns: 1fr; gap: 0; }
+    .chart-item {
+      break-inside: avoid; page-break-inside: avoid;
+      margin-bottom: 18px; padding-bottom: 4px;
+      border-bottom: 1px solid var(--cinza-borda);
+    }
+    .chart-item:last-child { border-bottom: none; }
     .finding { padding: 5px 8px; margin-bottom: 6px; font-size: 11px; }
     .finding .exame { font-size: 11px; }
     .tag { font-size: 10px; padding: 1px 5px; }
@@ -398,6 +405,7 @@ function render() {
     }).filter(Boolean);
     if (points.length < 1) return;
     const wrap = document.createElement("div");
+    wrap.className = "chart-item";
     wrap.innerHTML = `<div style="font-weight:700;color:var(--azul-esc);margin-bottom:4px">${keys[key]}</div><div class="chart-wrap"><canvas></canvas></div>`;
     chartGrid.appendChild(wrap);
     const ctx = wrap.querySelector("canvas").getContext("2d");
@@ -647,8 +655,19 @@ document.getElementById("importFile").addEventListener("change", (e) => {
   reader.readAsText(file);
 });
 
+function resizeChartsForPrint() {
+  charts.forEach(c => c.resize());
+}
+
+// Chart.js não redimensiona sozinho quando o CSS de impressão muda o
+// tamanho do container — sem isso, os gráficos ficam sobrepostos no PDF.
+window.addEventListener("beforeprint", resizeChartsForPrint);
+window.addEventListener("afterprint", resizeChartsForPrint);
+window.matchMedia("print").addEventListener("change", () => resizeChartsForPrint());
+
 document.getElementById("btnPrint").addEventListener("click", () => {
-  window.print();
+  resizeChartsForPrint();
+  setTimeout(() => window.print(), 50);
 });
 
 populatePatientSelect();
