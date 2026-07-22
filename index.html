@@ -493,7 +493,9 @@ function compareMetrics(oldMetrics, newMetrics) {
   // Detecta mudanças
   Object.keys(newMap).forEach(key => {
     const oldM = oldMap[key];
+    const newM = newMap[key];
     if (!oldM) return; // novo marcador, sem problema
+    if (!oldM.value || oldM.value === 0) return; // evita divisão por zero
     const pctChange = Math.abs(oldM.value - newM.value) / oldM.value * 100;
     if (pctChange > 30) {
       diffs.push({
