@@ -8,13 +8,7 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
-      theme: {
-        extend: {
-          screens: {
-            'print': {'raw': 'print'},
-          }
-        }
-      }
+      theme: { extend: { screens: { 'print': {'raw': 'print'} } } }
     }
   </script>
   
@@ -32,17 +26,14 @@
     ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
     ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
     
-    /* Configurações perfeitas para impressão em PDF/Papel */
     @media print {
       @page { margin: 1cm; }
       body { -webkit-print-color-adjust: exact; print-color-adjust: exact; background-color: white !important; }
       .print-break-inside-avoid { break-inside: avoid; page-break-inside: avoid; }
       .shadow-sm, .shadow-md, .shadow-xl { box-shadow: none !important; border: 1px solid #e2e8f0 !important; }
-      /* Esconder barra de rolagem na impressão */
       ::-webkit-scrollbar { display: none; }
     }
     
-    /* Animação suave para o toast de notificação */
     @keyframes fadeOut {
       0% { opacity: 1; transform: translateY(0); }
       70% { opacity: 1; transform: translateY(0); }
@@ -55,7 +46,7 @@
   <div id="root" class="h-screen w-screen print:h-auto print:w-full"></div>
 
   <script type="text/babel">
-    const { useState, useEffect, useMemo, useCallback } = React;
+    const { useState, useEffect, useMemo } = React;
 
     const firebaseConfig = {
       apiKey: "AIzaSyB3ZmY47c9BPcnCIbTiF9quhYO5aJmBFqo",
@@ -85,6 +76,30 @@
     const IconSearch = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg>;
     const IconCopy = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.56 2.25h-3.12a2.25 2.25 0 00-2.105 1.638L7.31 5.04M15.666 3.888l.348 1.152a2.25 2.25 0 01-2.105 2.859H10.09a2.25 2.25 0 01-2.104-2.859l.348-1.152M15.666 3.888A2.25 2.25 0 0117.915 6h1.22A2.25 2.25 0 0121.385 8.25v11.25A2.25 2.25 0 0119.135 21H4.865A2.25 2.25 0 012.615 18.75V8.25A2.25 2.25 0 014.865 6h1.22a2.25 2.25 0 012.249-2.112" /></svg>;
     const IconCheck = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>;
+
+    const SEED_PATIENT = {
+      patientId: "paciente-exemplo",
+      name: "Paciente Exemplo (Demonstração)",
+      prontuario: "12345-IES",
+      info: "Mulher, 42 anos. Histórico de hipotireoidismo e resistência insulínica.",
+      snapshots: [
+        {
+          date: "2026-06-22",
+          label: "Retorno 6 Meses (Jun/26)",
+          metrics: [
+            { key: "TSH", label: "TSH", value: 2.1, unit: "µUI/mL", refLow: 0.38, refHigh: 5.60 },
+            { key: "GLIC", label: "Glicemia Jejum", value: 92, unit: "mg/dL", refLow: 70, refHigh: 99 }
+          ],
+          findings: [
+            { group: "Tireoide", achado: "TSH normalizado em 2.1.", hipotese: "Eutireoidismo sob reposição.", sugestao: "Manter dose atual." }
+          ],
+          sintese: ["Excelente resposta ao tratamento tireoidiano."],
+          prontuario: "Retorno com exames de controle. TSH em alvo terapêutico.",
+          paciente: ["Ótimas notícias: sua tireoide está perfeitamente controlada."],
+          terapeutica: { manipuladas: [], comercializadas: ["Levotiroxina 50mcg"] }
+        }
+      ]
+    };
 
     const checkMetricStatus = (value, min, max) => {
       if (value === null || value === undefined) return 'neutral';
@@ -174,7 +189,6 @@
       const [user, setUser] = useState(null);
       const [isSyncing, setIsSyncing] = useState(false);
       
-      // Features Premium
       const [searchTerm, setSearchTerm] = useState('');
       const [copyStatus, setCopyStatus] = useState(false);
 
@@ -207,7 +221,6 @@
         return () => unsubscribe();
       }, [user]);
 
-      // Auto-selecionar primeiro paciente
       useEffect(() => {
         if (patients.length > 0 && !selectedPatientId) {
           setSelectedPatientId(patients[0].patientId);
@@ -249,7 +262,6 @@
             setCopyStatus(true);
             setTimeout(() => setCopyStatus(false), 2500);
           }).catch(err => {
-            // Fallback para navegadores antigos
             const textArea = document.createElement("textarea");
             textArea.value = currentSnapshot.prontuario;
             document.body.appendChild(textArea);
@@ -292,7 +304,6 @@
       const currentPatient = patients.find(p => p.patientId === selectedPatientId);
       const currentSnapshot = currentPatient?.snapshots[selectedSnapshotIdx] || currentPatient?.snapshots[currentPatient.snapshots.length - 1];
 
-      // Filtro de busca (Feature Premium)
       const filteredPatients = patients.filter(p => {
         const term = searchTerm.toLowerCase();
         return p.name.toLowerCase().includes(term) || (p.prontuario && p.prontuario.toLowerCase().includes(term));
@@ -320,7 +331,7 @@
                   <IconActivity /> Painel IES
                 </h1>
                 {user && (
-                  <div className="flex items-center gap-1 text-[10px] bg-white/10 px-2 py-1 rounded-full text-blue-200" title="Sincronização em Nuvem">
+                  <div className="flex items-center gap-1 text-[10px] bg-white/10 px-2 py-1 rounded-full text-blue-200">
                     <div className={`${isSyncing ? 'animate-pulse' : ''}`}><IconCloud /></div>
                     {isSyncing ? 'Sincronizando' : 'Online'}
                   </div>
@@ -329,7 +340,6 @@
               <p className="text-xs text-blue-200 mt-2 opacity-80">Endocrinologia & Nutrologia</p>
             </div>
 
-            {/* Feature Premium: Barra de Busca */}
             <div className="px-4 py-3 bg-black/20">
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-blue-200/50">
@@ -376,11 +386,9 @@
             </div>
           </div>
 
-          {}
           <div className="flex-1 flex flex-col h-full overflow-hidden bg-slate-50 print:bg-white print:h-auto print:overflow-visible print:block">
             {currentPatient ? (
               <>
-                {/* Cabeçalho exclusivo para Impressão */}
                 <div className="hidden print:block text-center mb-6 pb-4 border-b-2 border-slate-200">
                   <h1 className="text-2xl font-bold text-slate-800 flex items-center justify-center gap-2">
                     <IconActivity /> Instituto Elo de Saúde
@@ -397,7 +405,6 @@
                     </div>
                   </div>
                   
-                  {/* Feature Premium: Botão de Imprimir */}
                   <div className="flex items-center gap-3 print:hidden">
                     <button onClick={handlePrint} className="flex items-center gap-2 px-4 py-2 bg-slate-800 text-white hover:bg-slate-700 rounded-lg text-sm font-medium transition-colors shadow-sm focus:ring-2 focus:ring-offset-2 focus:ring-slate-800">
                       <IconPrinter /> Imprimir Relatório
@@ -409,7 +416,6 @@
                   </div>
                 </header>
 
-                {}
                 <div className="flex-1 overflow-y-auto p-8 print:p-0 print:overflow-visible transition-opacity duration-300">
                   
                   {activeTab === 'painel' && currentSnapshot && (
@@ -452,7 +458,6 @@
                         })}
                       </div>
 
-                      {}
                       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 print:grid-cols-1 print:gap-4">
                         <div className="lg:col-span-2 space-y-6">
                           <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden print:shadow-none">
@@ -474,7 +479,6 @@
                           </div>
                         </div>
 
-                        {/* Coluna da Direita */}
                         <div className="space-y-6 print:space-y-4 print:grid print:grid-cols-2 print:gap-4">
                           <div className="bg-[#00113F] text-white rounded-xl p-6 shadow-md print:bg-white print:border print:border-slate-300 print:text-slate-900 print:shadow-none print-break-inside-avoid relative overflow-hidden">
                             <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/10 rounded-full blur-2xl -mr-10 -mt-10"></div>
@@ -482,7 +486,6 @@
                             <ul className="list-disc pl-4 space-y-2 text-sm text-slate-100 print:text-slate-700 relative z-10">{currentSnapshot.sintese?.map((s, i) => <li key={i}>{s}</li>)}</ul>
                           </div>
                           
-                          {/* Feature Premium: Box de Prontuário Copiável */}
                           <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 print:shadow-none print-break-inside-avoid relative group">
                             <div className="flex justify-between items-center mb-3 border-b border-slate-100 pb-2 print:border-slate-300">
                               <h3 className="font-semibold text-slate-800">Resumo Prontuário</h3>
@@ -545,7 +548,6 @@
                 </div>
               </>
             ) : (
-              // Empty State
               <div className="flex-1 flex items-center justify-center bg-slate-50 p-8 text-center print:hidden">
                 <div className="max-w-md">
                   <div className="w-20 h-20 bg-blue-100 text-[#0040F9] rounded-full flex items-center justify-center mx-auto mb-6 shadow-sm"><IconActivity /></div>
@@ -554,12 +556,13 @@
                   <button onClick={() => { setModalType('patient'); setJsonInput(''); setJsonError(''); setIsModalOpen(true); }} className="px-6 py-3 bg-[#0040F9] text-white rounded-lg font-medium shadow-md hover:bg-blue-700 hover:shadow-lg transition-all focus:ring-4 focus:ring-blue-500/30">
                     + Adicionar Primeiro Paciente
                   </button>
+                  <br /><br />
+                  <button onClick={() => saveToCloud(SEED_PATIENT)} className="text-sm text-[#0040F9] underline">Carregar Paciente de Teste</button>
                 </div>
               </div>
             )}
           </div>
 
-          {}
           {isModalOpen && (
             <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 print:hidden transition-opacity">
               <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh] animate-[fadeIn_0.2s_ease-out]">
