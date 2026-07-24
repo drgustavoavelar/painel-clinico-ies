@@ -8,7 +8,13 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
-      theme: { extend: { screens: { 'print': {'raw': 'print'} } } }
+      theme: {
+        extend: {
+          screens: {
+            'print': {'raw': 'print'},
+          }
+        }
+      }
     }
   </script>
   
@@ -48,6 +54,7 @@
   <script type="text/babel">
     const { useState, useEffect, useMemo } = React;
 
+    // Configurações do Firebase
     const firebaseConfig = {
       apiKey: "AIzaSyB3ZmY47c9BPcnCIbTiF9quhYO5aJmBFqo",
       authDomain: "instituto-elo-de-saude.firebaseapp.com",
@@ -63,8 +70,10 @@
     }
     const auth = firebase.auth();
     const db = firebase.firestore();
+    const googleProvider = new firebase.auth.GoogleAuthProvider();
     const appId = 'painel-clinico-ies-web';
 
+    // Ícones SVG
     const IconUser = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" /></svg>;
     const IconPlus = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>;
     const IconFile = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>;
@@ -76,30 +85,7 @@
     const IconSearch = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg>;
     const IconCopy = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.56 2.25h-3.12a2.25 2.25 0 00-2.105 1.638L7.31 5.04M15.666 3.888l.348 1.152a2.25 2.25 0 01-2.105 2.859H10.09a2.25 2.25 0 01-2.104-2.859l.348-1.152M15.666 3.888A2.25 2.25 0 0117.915 6h1.22A2.25 2.25 0 0121.385 8.25v11.25A2.25 2.25 0 0119.135 21H4.865A2.25 2.25 0 012.615 18.75V8.25A2.25 2.25 0 014.865 6h1.22a2.25 2.25 0 012.249-2.112" /></svg>;
     const IconCheck = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>;
-
-    const SEED_PATIENT = {
-      patientId: "paciente-exemplo",
-      name: "Paciente Exemplo (Demonstração)",
-      prontuario: "12345-IES",
-      info: "Mulher, 42 anos. Histórico de hipotireoidismo e resistência insulínica.",
-      snapshots: [
-        {
-          date: "2026-06-22",
-          label: "Retorno 6 Meses (Jun/26)",
-          metrics: [
-            { key: "TSH", label: "TSH", value: 2.1, unit: "µUI/mL", refLow: 0.38, refHigh: 5.60 },
-            { key: "GLIC", label: "Glicemia Jejum", value: 92, unit: "mg/dL", refLow: 70, refHigh: 99 }
-          ],
-          findings: [
-            { group: "Tireoide", achado: "TSH normalizado em 2.1.", hipotese: "Eutireoidismo sob reposição.", sugestao: "Manter dose atual." }
-          ],
-          sintese: ["Excelente resposta ao tratamento tireoidiano."],
-          prontuario: "Retorno com exames de controle. TSH em alvo terapêutico.",
-          paciente: ["Ótimas notícias: sua tireoide está perfeitamente controlada."],
-          terapeutica: { manipuladas: [], comercializadas: ["Levotiroxina 50mcg"] }
-        }
-      ]
-    };
+    const IconLogout = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75" /></svg>;
 
     const checkMetricStatus = (value, min, max) => {
       if (value === null || value === undefined) return 'neutral';
@@ -188,20 +174,15 @@
       
       const [user, setUser] = useState(null);
       const [isSyncing, setIsSyncing] = useState(false);
+      const [authError, setAuthError] = useState('');
       
       const [searchTerm, setSearchTerm] = useState('');
       const [copyStatus, setCopyStatus] = useState(false);
 
       useEffect(() => {
-        const initAuth = async () => {
-          try {
-            await auth.signInAnonymously();
-          } catch (error) {
-            console.error("Auth error:", error);
-          }
-        };
-        initAuth();
-        const unsubscribe = auth.onAuthStateChanged(setUser);
+        const unsubscribe = auth.onAuthStateChanged((user) => {
+          setUser(user);
+        });
         return () => unsubscribe();
       }, []);
 
@@ -227,6 +208,21 @@
           setSelectedSnapshotIdx(patients[0].snapshots?.length ? patients[0].snapshots.length - 1 : 0);
         }
       }, [patients, selectedPatientId]);
+
+      const handleLogin = async () => {
+        try {
+          await auth.signInWithPopup(googleProvider);
+        } catch (error) {
+          console.error("Erro no login:", error);
+          setAuthError("Falha na autenticação: " + error.message);
+        }
+      };
+
+      const handleLogout = () => {
+        auth.signOut();
+        setPatients([]);
+        setSelectedPatientId(null);
+      };
 
       const saveToCloud = async (patientData) => {
         if (!user) return;
@@ -278,6 +274,17 @@
         try {
           setJsonError('');
           const parsedData = JSON.parse(jsonInput);
+          
+          if (Array.isArray(parsedData)) {
+             // Caso o usuário importe o arquivo de backup completo
+             for (const p of parsedData) {
+               await saveToCloud(p);
+             }
+             setIsModalOpen(false);
+             setJsonInput('');
+             return;
+          }
+
           if (modalType === 'patient') {
             if (!parsedData.patientId || !parsedData.name || !Array.isArray(parsedData.snapshots)) throw new Error("JSON inválido para Paciente.");
             await saveToCloud(parsedData);
@@ -321,6 +328,35 @@
         return Object.values(metricsMap).filter(m => m.data.length > 0);
       }, [currentPatient]);
 
+      // TELA DE LOGIN PREMIUM
+      if (!user) {
+        return (
+          <div className="flex h-screen items-center justify-center bg-slate-50">
+            <div className="bg-white p-10 rounded-3xl shadow-2xl max-w-md w-full text-center border border-slate-100">
+              <div className="w-20 h-20 bg-blue-50 text-[#0040F9] rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-inner transform rotate-3">
+                <IconActivity />
+              </div>
+              <h2 className="text-2xl font-bold text-slate-800 mb-2 tracking-tight">Painel IES Premium</h2>
+              <p className="text-slate-500 mb-8 text-sm leading-relaxed">Acesso exclusivo para profissionais do Instituto Elo de Saúde. Todos os dados são criptografados na nuvem.</p>
+              
+              {authError && (
+                <div className="mb-4 p-3 bg-red-50 text-red-700 rounded-xl text-sm border border-red-100">{authError}</div>
+              )}
+
+              <button onClick={handleLogin} className="w-full flex items-center justify-center gap-3 px-6 py-3.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl font-semibold shadow-sm transition-all focus:ring-4 focus:ring-slate-100">
+                <svg className="w-5 h-5" viewBox="0 0 24 24">
+                  <path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                  <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                  <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
+                  <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 15.02 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
+                </svg>
+                Entrar com Google
+              </button>
+            </div>
+          </div>
+        );
+      }
+
       return (
         <div className="flex h-screen overflow-hidden print:h-auto print:overflow-visible transition-all duration-300">
           
@@ -330,14 +366,17 @@
                 <h1 className="text-xl font-bold tracking-tight text-white flex items-center gap-2">
                   <IconActivity /> Painel IES
                 </h1>
-                {user && (
-                  <div className="flex items-center gap-1 text-[10px] bg-white/10 px-2 py-1 rounded-full text-blue-200">
-                    <div className={`${isSyncing ? 'animate-pulse' : ''}`}><IconCloud /></div>
-                    {isSyncing ? 'Sincronizando' : 'Online'}
-                  </div>
-                )}
+                <button onClick={handleLogout} className="text-white/50 hover:text-white transition-colors" title="Sair do Sistema">
+                  <IconLogout />
+                </button>
               </div>
-              <p className="text-xs text-blue-200 mt-2 opacity-80">Endocrinologia & Nutrologia</p>
+              <div className="flex items-center gap-2 mt-3">
+                <div className="flex items-center gap-1 text-[10px] bg-white/10 px-2 py-1 rounded-full text-blue-200">
+                  <div className={`${isSyncing ? 'animate-pulse' : ''}`}><IconCloud /></div>
+                  {isSyncing ? 'Sincronizando' : 'Online'}
+                </div>
+                <div className="text-[10px] text-blue-300 truncate max-w-[120px]" title={user.email}>{user.email}</div>
+              </div>
             </div>
 
             <div className="px-4 py-3 bg-black/20">
@@ -556,8 +595,6 @@
                   <button onClick={() => { setModalType('patient'); setJsonInput(''); setJsonError(''); setIsModalOpen(true); }} className="px-6 py-3 bg-[#0040F9] text-white rounded-lg font-medium shadow-md hover:bg-blue-700 hover:shadow-lg transition-all focus:ring-4 focus:ring-blue-500/30">
                     + Adicionar Primeiro Paciente
                   </button>
-                  <br /><br />
-                  <button onClick={() => saveToCloud(SEED_PATIENT)} className="text-sm text-[#0040F9] underline">Carregar Paciente de Teste</button>
                 </div>
               </div>
             )}
@@ -597,3 +634,4 @@
   </script>
 </body>
 </html>
+```
