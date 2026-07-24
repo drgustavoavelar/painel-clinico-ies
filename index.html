@@ -270,12 +270,22 @@
           setJsonError('');
           const parsedData = JSON.parse(jsonInput);
           if (modalType === 'patient') {
+            if (Array.isArray(parsedData)) {
+              for (const patient of parsedData) {
+                if (!patient.patientId || !patient.name || !Array.isArray(patient.snapshots)) throw new Error("JSON inválido para Paciente.");
+                await saveToCloud(patient);
+              }
+              setIsModalOpen(false);
+              setJsonInput('');
+              return;
+            }
             if (!parsedData.patientId || !parsedData.name || !Array.isArray(parsedData.snapshots)) throw new Error("JSON inválido para Paciente.");
             await saveToCloud(parsedData);
             setSelectedPatientId(parsedData.patientId);
             setSelectedSnapshotIdx(parsedData.snapshots.length - 1);
           } else if (modalType === 'snapshot') {
             if (!parsedData.date || !Array.isArray(parsedData.metrics)) throw new Error("JSON inválido para Snapshot.");
+
             const currentPatientData = patients.find(p => p.patientId === selectedPatientId);
             if (!currentPatientData) throw new Error("Nenhum paciente selecionado.");
             const updatedPatient = {
