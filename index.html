@@ -98,7 +98,9 @@
   .hint { font-size: 12px; color: #667; margin-top: 8px; }
   .empty { color: #778; font-style: italic; padding: 10px 0; }
   .snap-list { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
-  .snap-chip { font-size: 11.5px; background: var(--cinza-bg); border: 1px solid var(--cinza-borda); padding: 3px 9px; border-radius: 999px; color: var(--azul-esc); }
+  .snap-chip { font-size: 11.5px; background: var(--cinza-bg); border: 1px solid var(--cinza-borda); padding: 3px 9px; border-radius: 999px; color: var(--azul-esc); transition: all .15s; }
+  .snap-chip:hover { border-color: var(--azul); }
+  .snap-chip.active { background: var(--azul); border-color: var(--azul); color: var(--branco); font-weight: 700; }
   footer { text-align: center; font-size: 11px; color: #99a; padding: 20px; }
 
   /* ── Impressão ── */
@@ -472,6 +474,7 @@ function populatePatientSelect() {
 }
 
 let lastRenderedPatientId = null;
+let selectedSnapshotDate = null; // null = usa o snapshot mais recente
 
 function showPatientSwitchNotice(name) {
   const existing = document.getElementById("patientSwitchToast");
@@ -523,6 +526,7 @@ function render() {
   if (currentPatientId !== lastRenderedPatientId) {
     showPatientSwitchNotice(p.name);
     lastRenderedPatientId = currentPatientId;
+    selectedSnapshotDate = null; // trocou de paciente — volta a mostrar o snapshot mais recente
   }
   document.title = p.name + " — Painel Clínico IES";
 
@@ -533,17 +537,20 @@ function render() {
   }
   const snaps = [...p.snapshots].sort((a,b)=> a.date.localeCompare(b.date));
   const latest = snaps[snaps.length-1];
+  const selected = snaps.find(s => s.date === selectedSnapshotDate) || latest;
 
   document.getElementById("hdrName").textContent = p.name;
-  document.getElementById("hdrSub").textContent = `Prontuário ${p.prontuario || "—"} · Último snapshot: ${fmtDate(latest.date)} (${latest.label || ""})`;
+  document.getElementById("hdrSub").textContent = selected === latest
+    ? `Prontuário ${p.prontuario || "—"} · Último snapshot: ${fmtDate(latest.date)} (${latest.label || ""})`
+    : `Prontuário ${p.prontuario || "—"} · Visualizando snapshot: ${fmtDate(selected.date)} (${selected.label || ""}) — não é o mais recente`;
   document.getElementById("patientMeta").innerHTML = `<div>${p.info || ""}</div>`;
-  document.getElementById("snapList").innerHTML = snaps.map(s => `<span class="snap-chip">${fmtDate(s.date)} — ${s.label || ""}</span>`).join("");
-  document.getElementById("snapCount").textContent = `${snaps.length} snapshot(s) para este paciente`;
+  document.getElementById("snapList").innerHTML = snaps.map(s => `<span class="snap-chip${s.date === selected.date ? " active" : ""}" data-date="${s.date}" style="cursor:pointer">${fmtDate(s.date)} — ${s.label || ""}</span>`).join("");
+  document.getElementById("snapCount").textContent = `${snaps.length} snapshot(s) para este paciente — clique numa data acima para ver aquele snapshot`;
 
-  // Metrics grid (latest)
+  // Metrics grid (do snapshot selecionado, não sempre o mais recente)
   const grid = document.getElementById("metricGrid");
   grid.innerHTML = "";
-  (latest.metrics || []).forEach(m => {
+  (selected.metrics || []).forEach(m => {
     const status = getMetricStatus(m);
     const div = document.createElement("div");
     div.className = "metric" + (status === "above" || status === "below" ? " abn" : "") + (status === "none" ? " noref" : "");
@@ -600,7 +607,7 @@ function render() {
 
   // Findings
   const fdiv = document.getElementById("findingsList");
-  fdiv.innerHTML = (latest.findings||[]).map(f => `
+  fdiv.innerHTML = (selected.findings||[]).map(f => `
     <div class="finding">
       <div class="exame">${f.group}</div>
       <div><span class="tag achado">Achado</span>${f.achado||""}</div>
@@ -610,17 +617,17 @@ function render() {
   `).join("") || `<div class="empty">Sem achados registrados.</div>`;
 
   // Síntese
-  document.getElementById("sinteseList").innerHTML = (latest.sintese||[]).map(s => `<li>${s}</li>`).join("") || `<li class="empty">—</li>`;
+  document.getElementById("sinteseList").innerHTML = (selected.sintese||[]).map(s => `<li>${s}</li>`).join("") || `<li class="empty">—</li>`;
 
   // Prontuário
-  document.getElementById("prontuarioText").textContent = latest.prontuario || "—";
+  document.getElementById("prontuarioText").textContent = selected.prontuario || "—";
 
   // Paciente
-  document.getElementById("pacienteText").innerHTML = (latest.paciente||[]).map(t => `<p>${t}</p>`).join("");
+  document.getElementById("pacienteText").innerHTML = (selected.paciente||[]).map(t => `<p>${t}</p>`).join("");
 
   // Terapêutica
-  document.getElementById("manipuladasList").innerHTML = (latest.terapeutica?.manipuladas||[]).map(s => `<li>${s}</li>`).join("") || `<li class="empty">—</li>`;
-  document.getElementById("comercializadasList").innerHTML = (latest.terapeutica?.comercializadas||[]).map(s => `<li>${s}</li>`).join("") || `<li class="empty">—</li>`;
+  document.getElementById("manipuladasList").innerHTML = (selected.terapeutica?.manipuladas||[]).map(s => `<li>${s}</li>`).join("") || `<li class="empty">—</li>`;
+  document.getElementById("comercializadasList").innerHTML = (selected.terapeutica?.comercializadas||[]).map(s => `<li>${s}</li>`).join("") || `<li class="empty">—</li>`;
 }
 
 document.getElementById("tabs").addEventListener("click", (e) => {
@@ -634,6 +641,13 @@ document.getElementById("tabs").addEventListener("click", (e) => {
 
 document.getElementById("patientSelect").addEventListener("change", (e) => {
   currentPatientId = e.target.value || null;
+  render();
+});
+
+document.getElementById("snapList").addEventListener("click", (e) => {
+  const chip = e.target.closest(".snap-chip");
+  if (!chip) return;
+  selectedSnapshotDate = chip.dataset.date;
   render();
 });
 
