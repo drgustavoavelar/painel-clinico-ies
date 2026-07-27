@@ -106,7 +106,16 @@
   @media print {
     * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
     html, body { margin: 0; padding: 0; }
-    .toolbar, #tabs, .modal-bg, footer, #btnPrint, #patientSwitchToast { display: none !important; }
+    .toolbar, #tabs, .modal-bg, footer, #btnPrint, #btnPrintPatient, #patientSwitchToast { display: none !important; }
+
+    /* Impressão para o paciente: só Marcadores e Tendências */
+    body.print-patient-mode #panel-findings,
+    body.print-patient-mode #panel-sintese,
+    body.print-patient-mode #panel-prontuario,
+    body.print-patient-mode #panel-paciente,
+    body.print-patient-mode #panel-terapeutica {
+      display: none !important;
+    }
     #appShell { display: block !important; }
     header {
       padding: 12px 18px; margin: 0; position: static !important;
@@ -181,7 +190,8 @@
   <span style="flex:1"></span>
   <span class="hint" id="syncStatus" title="Sincronização com a nuvem">☁️ —</span>
   <span class="hint" id="snapCount"></span>
-  <button class="secondary" id="btnPrint" style="border-color:var(--azul-esc);color:var(--azul-esc)">⎙ Imprimir relatório</button>
+  <button class="secondary" id="btnPrint" style="border-color:var(--azul-esc);color:var(--azul-esc)">⎙ Imprimir relatório completo</button>
+  <button class="secondary" id="btnPrintPatient" style="border-color:var(--teal);color:var(--teal)" title="Imprime só Marcadores e Tendências, sem achados/hipóteses/prontuário">⎙ Imprimir para o paciente</button>
   <span class="hint" id="userEmail" style="margin-left:8px"></span>
   <button class="secondary" id="btnLogout" title="Sair">Sair</button>
 </div>
@@ -827,8 +837,21 @@ window.addEventListener("afterprint", resizeChartsForPrint);
 window.matchMedia("print").addEventListener("change", () => resizeChartsForPrint());
 
 document.getElementById("btnPrint").addEventListener("click", () => {
+  document.body.classList.remove("print-patient-mode");
   resizeChartsForPrint();
   setTimeout(() => window.print(), 50);
+});
+
+document.getElementById("btnPrintPatient").addEventListener("click", () => {
+  document.body.classList.add("print-patient-mode");
+  resizeChartsForPrint();
+  setTimeout(() => window.print(), 50);
+});
+
+// Sempre volta ao modo completo depois de imprimir, para não afetar a
+// próxima impressão nem a visualização normal na tela.
+window.addEventListener("afterprint", () => {
+  document.body.classList.remove("print-patient-mode");
 });
 
 document.getElementById("btnCopyProntuario").addEventListener("click", () => {
