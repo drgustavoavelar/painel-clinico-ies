@@ -3,35 +3,47 @@
 // Instituto Elo de Saúde · Dr. Gustavo Avelar
 //
 // Funcionamento:
-//   1. PDF(s) de um paciente são colocados na pasta "IES · Exames para Analisar"
-//   2. O script (rodando a cada 5 min nos servidores do Google) detecta os arquivos
-//   3. Agrupa os arquivos pelo nome do paciente (extraído do nome do arquivo) —
-//      arquivos da MESMA pessoa em uma mesma rodada são enviados JUNTOS ao Claude
-//      numa única chamada, para que histórico/anamnese e exames de datas
-//      diferentes sirvam de contexto uns para os outros (hipóteses mais
-//      fidedignas), em vez de serem analisados isoladamente.
+//   1. Funcionária preenche o Google Form "Acompanhamento Dr. Gustavo" com o
+//      campo "Paciente" (texto confiável, digitado por ela) + anexa o(s) PDF(s).
+//   2. O script (rodando a cada 5 min) lê a planilha de respostas do formulário,
+//      pega as linhas com Tipo de pedido = "Exames" ainda não analisadas.
+//   3. Agrupa por PACIENTE usando o texto do campo "Paciente" da planilha
+//      (não o nome do arquivo — nomes de arquivo do upload do Forms trazem o
+//      nome de quem enviou, não do paciente, e não são confiáveis para isso).
+//      Arquivos da MESMA pessoa numa mesma rodada são enviados JUNTOS ao
+//      Claude numa única chamada, para que histórico/anamnese e exames de
+//      datas diferentes sirvam de contexto (hipóteses mais fidedignas).
 //   4. Documentos sem valores numéricos (histórico, anamnese, prontuário) viram
 //      só contexto clínico — nunca um snapshot. Exames com datas de coleta
 //      diferentes viram snapshots SEPARADOS (um por data), preservando a
 //      comparação temporal correta.
 //   5. Salva UM JSON + resumo por paciente na pasta "IES · Exames Processados"
+//      (os PDFs originais NÃO são movidos — continuam no lugar de sempre,
+//      vinculados ao registro do formulário, para não atrapalhar o fluxo
+//      administrativo das funcionárias).
 //   6. Cria ou atualiza o paciente no Notion "Pacientes em Acompanhamento"
 //      (uma única atualização por paciente, usando a data mais recente)
 //   7. Envia um e-mail consolidado (um bloco por paciente, não por arquivo)
-//   8. Move os PDFs da entrada para processados
+//   8. Marca a(s) linha(s) da planilha como analisadas (coluna própria da IA,
+//      sem mexer na coluna "Etapa do processo" controlada pelas funcionárias)
 //
 // Setup: veja SETUP.md nesta mesma pasta
 // ═══════════════════════════════════════════════════════════════════════════════
 
 // ── Configuração ─────────────────────────────────────────────────────────────
 var CONFIG = {
-  PASTA_ENTRADA:     'IES · Exames para Analisar',
-  PASTA_PROCESSADOS: 'IES · Exames Processados',
-  PASTA_ERROS:       'IES · Erros de Análise',
-  NOTION_DB_NAME:    'Pacientes em Acompanhamento',
-  EMAIL_NOTIF:       'dr.gustavoavelar@gmail.com',
-  MODELO_CLAUDE:     'claude-haiku-4-5-20251001',
-  MAX_PDF_BYTES:     8 * 1024 * 1024,   // 8 MB — limite seguro para UrlFetchApp
+  SPREADSHEET_ID:      '1suyX2U99lP2Qs0leqdtRFdqFfkMLSs8ECKB9uP2w7z4', // Respostas do Form "Acompanhamento Dr. Gustavo"
+  SHEET_GID:           584818370, // aba (tab) exata das respostas
+  COL_PACIENTE:        'Paciente',
+  COL_TIPO_PEDIDO:     'Tipo de pedido',
+  COL_ANEXOS:          'Anexos',
+  TIPO_PEDIDO_EXAME:   'Exames',
+  COL_STATUS_IA:       'Analisado pela IA', // criada automaticamente se não existir
+  PASTA_PROCESSADOS:   'IES · Exames Processados',
+  NOTION_DB_NAME:      'Pacientes em Acompanhamento',
+  EMAIL_NOTIF:         'dr.gustavoavelar@gmail.com',
+  MODELO_CLAUDE:       'claude-haiku-4-5-20251001',
+  MAX_PDF_BYTES:       8 * 1024 * 1024,   // 8 MB — limite seguro para UrlFetchApp
 };
 
 // ── System prompt clínico (espelho do painel.py) ──────────────────────────────
@@ -122,17 +134,9 @@ function getApiKey_(name) {
   return val;
 }
 
-// ── Agrupamento de arquivos por paciente ──────────────────────────────────────
-// Nome do arquivo segue o padrão "AAAA-MM-DD - Tipo do exame - Nome Completo.pdf"
-// — o nome do paciente é sempre o último segmento antes da extensão.
-function extractPatientNameFromFilename_(filename) {
-  var base = filename.replace(/\.pdf$/i, '');
-  var parts = base.split(' - ');
-  return parts[parts.length - 1].trim();
-}
-
+// ── Leitura da planilha de respostas do Google Form ───────────────────────────
 // Normaliza para agrupar variações do mesmo nome (acentos, maiúsculas,
-// conectivos "de/da/do" que às vezes aparecem/somem entre um arquivo e outro).
+// conectivos "de/da/do" que às vezes aparecem/somem entre uma resposta e outra).
 function normalizePatientName_(name) {
   return name
     .toLowerCase()
@@ -143,16 +147,97 @@ function normalizePatientName_(name) {
     .trim();
 }
 
-function groupFilesByPatient_(files) {
-  var groups = {}; // chave normalizada -> { displayName, files: [] }
-  for (var i = 0; i < files.length; i++) {
-    var file = files[i];
-    var name = extractPatientNameFromFilename_(file.getName());
-    var key = normalizePatientName_(name);
-    if (!groups[key]) groups[key] = { displayName: name, files: [] };
-    groups[key].files.push(file);
+function getResponseSheet_() {
+  var ss = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
+  var sheets = ss.getSheets();
+  for (var i = 0; i < sheets.length; i++) {
+    if (sheets[i].getSheetId() === CONFIG.SHEET_GID) return sheets[i];
   }
-  return groups;
+  throw new Error('Aba com gid ' + CONFIG.SHEET_GID + ' não encontrada na planilha.');
+}
+
+function getHeaderMap_(sheet) {
+  var headerRow = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  var map = {};
+  for (var i = 0; i < headerRow.length; i++) {
+    if (headerRow[i]) map[headerRow[i].toString().trim()] = i; // índice 0-based
+  }
+  return map;
+}
+
+// Garante que a coluna de controle da IA existe; cria no final se não existir.
+// Retorna o índice 0-based da coluna.
+function ensureStatusColumn_(sheet, headerMap) {
+  if (headerMap[CONFIG.COL_STATUS_IA] !== undefined) return headerMap[CONFIG.COL_STATUS_IA];
+  var newColIndex = sheet.getLastColumn() + 1;
+  sheet.getRange(1, newColIndex).setValue(CONFIG.COL_STATUS_IA);
+  headerMap[CONFIG.COL_STATUS_IA] = newColIndex - 1;
+  return newColIndex - 1;
+}
+
+// Extrai IDs de arquivo do Drive a partir do texto da célula "Anexos"
+// (Forms grava como URLs separadas por vírgula/quebra de linha).
+function extractDriveFileIds_(cellValue) {
+  if (!cellValue) return [];
+  var text = cellValue.toString();
+  var ids = [];
+  var patterns = [/\/d\/([a-zA-Z0-9_-]{15,})/g, /[?&]id=([a-zA-Z0-9_-]{15,})/g];
+  patterns.forEach(function(re) {
+    var m;
+    while ((m = re.exec(text)) !== null) ids.push(m[1]);
+  });
+  // remove duplicatas (o mesmo link pode casar com os dois padrões)
+  return ids.filter(function(id, idx) { return ids.indexOf(id) === idx; });
+}
+
+// Varre a planilha e agrupa por paciente as linhas ainda não analisadas
+// (Tipo de pedido = Exames, coluna de status vazia, com anexos válidos).
+function collectPendingPatientGroups_() {
+  var sheet = getResponseSheet_();
+  var headerMap = getHeaderMap_(sheet);
+  var statusCol = ensureStatusColumn_(sheet, headerMap);
+
+  var colPaciente = headerMap[CONFIG.COL_PACIENTE];
+  var colTipo     = headerMap[CONFIG.COL_TIPO_PEDIDO];
+  var colAnexos   = headerMap[CONFIG.COL_ANEXOS];
+  if (colPaciente === undefined || colTipo === undefined || colAnexos === undefined) {
+    throw new Error('Colunas esperadas não encontradas na planilha (Paciente/Tipo de pedido/Anexos).');
+  }
+
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return { groups: {}, sheet: sheet, statusCol: statusCol };
+
+  var data = sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).getValues();
+  var groups = {}; // chave normalizada -> { displayName, files: [], rows: [] }
+
+  for (var r = 0; r < data.length; r++) {
+    var row = data[r];
+    var rowNumber = r + 2; // linha real na planilha (1-based, +1 pelo cabeçalho)
+    var jaAnalisado = row[statusCol];
+    var tipoPedido = (row[colTipo] || '').toString().trim();
+    if (jaAnalisado) continue;
+    if (tipoPedido !== CONFIG.TIPO_PEDIDO_EXAME) continue;
+
+    var pacienteNome = (row[colPaciente] || '').toString().trim();
+    var fileIds = extractDriveFileIds_(row[colAnexos]);
+    if (!pacienteNome || fileIds.length === 0) continue;
+
+    var key = normalizePatientName_(pacienteNome);
+    if (!groups[key]) groups[key] = { displayName: pacienteNome, files: [], rows: [] };
+    groups[key].rows.push(rowNumber);
+    fileIds.forEach(function(id) {
+      try { groups[key].files.push(DriveApp.getFileById(id)); }
+      catch (e) { Logger.log('⚠️ Não foi possível abrir arquivo ' + id + ' (linha ' + rowNumber + '): ' + e.message); }
+    });
+  }
+
+  return { groups: groups, sheet: sheet, statusCol: statusCol };
+}
+
+function markRowsStatus_(sheet, statusCol, rowNumbers, statusText) {
+  rowNumbers.forEach(function(rowNumber) {
+    sheet.getRange(rowNumber, statusCol + 1).setValue(statusText);
+  });
 }
 
 // ── Claude API ────────────────────────────────────────────────────────────────
@@ -377,10 +462,8 @@ function processPatientGroup_(displayName, files, outputFolder) {
     Logger.log(notionResult);
   }
 
-  // Mover TODOS os arquivos do grupo para processados
-  for (var i = 0; i < files.length; i++) {
-    files[i].moveTo(outputFolder);
-  }
+  // Os PDFs originais NÃO são movidos — pertencem ao registro do formulário
+  // (pasta "Anexos (File responses)") e não devem ser reorganizados aqui.
 
   return {
     patient:      patientData.name || displayName,
@@ -394,23 +477,18 @@ function processPatientGroup_(displayName, files, outputFolder) {
 
 // ── Função principal — acionada pelo trigger ──────────────────────────────────
 function processarExames() {
-  var inputFolder  = getOrCreateFolder_(CONFIG.PASTA_ENTRADA);
   var outputFolder = getOrCreateFolder_(CONFIG.PASTA_PROCESSADOS);
-  var errorFolder  = getOrCreateFolder_(CONFIG.PASTA_ERROS);
 
-  var fileIterator = inputFolder.getFilesByType(MimeType.PDF);
-  var allFiles = [];
-  while (fileIterator.hasNext()) allFiles.push(fileIterator.next());
+  var pending = collectPendingPatientGroups_();
+  var groups = pending.groups;
+  var sheet = pending.sheet;
+  var statusCol = pending.statusCol;
+  var groupKeys = Object.keys(groups);
 
-  if (allFiles.length === 0) {
-    Logger.log('Nenhum PDF novo na pasta de entrada.');
+  if (groupKeys.length === 0) {
+    Logger.log('Nenhuma resposta nova de "Exames" pendente na planilha.');
     return;
   }
-
-  // Agrupa por paciente ANTES de chamar o Claude — arquivos da mesma pessoa
-  // na mesma rodada são analisados juntos, não isoladamente.
-  var groups = groupFilesByPatient_(allFiles);
-  var groupKeys = Object.keys(groups);
 
   var processed = [];
   var errors    = [];
@@ -420,12 +498,12 @@ function processarExames() {
     try {
       var r = processPatientGroup_(group.displayName, group.files, outputFolder);
       processed.push(r);
+      markRowsStatus_(sheet, statusCol, group.rows,
+        '✅ ' + Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'dd/MM/yyyy HH:mm'));
     } catch (e) {
       Logger.log('❌ Erro no paciente "' + group.displayName + '": ' + e.message);
-      errors.push({ file: group.displayName + ' (' + group.files.length + ' arquivo(s))', error: e.message });
-      for (var m = 0; m < group.files.length; m++) {
-        try { group.files[m].moveTo(errorFolder); } catch (_) {}
-      }
+      errors.push({ file: group.displayName, error: e.message });
+      markRowsStatus_(sheet, statusCol, group.rows, '⚠️ ERRO: ' + e.message.substring(0, 200));
     }
   }
 
@@ -458,7 +536,7 @@ function processarExames() {
     for (var j = 0; j < errors.length; j++) {
       body += '• ' + errors[j].file + '\n  ' + errors[j].error + '\n';
     }
-    body += '\nArquivos com erro movidos para: ' + CONFIG.PASTA_ERROS + '\n';
+    body += '\nLinha(s) da planilha marcada(s) com erro — corrija e apague a célula de status para tentar novamente.\n';
   }
 
   MailApp.sendEmail({
@@ -487,23 +565,16 @@ function instalarTrigger() {
 
   Logger.log('✅ Trigger instalado: processarExames a cada 5 minutos.');
 
-  // Cria as pastas do Drive na primeira execução
-  getOrCreateFolder_(CONFIG.PASTA_ENTRADA);
+  // Cria a pasta de saída na primeira execução (a entrada agora é a
+  // planilha de respostas do Google Form, configurada em CONFIG.SPREADSHEET_ID)
   getOrCreateFolder_(CONFIG.PASTA_PROCESSADOS);
-  getOrCreateFolder_(CONFIG.PASTA_ERROS);
-  Logger.log('✅ Pastas do Drive criadas/verificadas.');
+  Logger.log('✅ Pasta de saída do Drive criada/verificada.');
 }
 
-// ── Teste manual: analisa PDFs já salvos no Drive (sem mover arquivos) ────────
-// Útil para testar antes de instalar o trigger.
+// ── Teste manual: processa a planilha de respostas agora mesmo ───────────────
+// Útil para testar antes de instalar o trigger, ou para forçar uma rodada
+// fora do agendamento de 5 minutos.
 function testeManual() {
-  var inputFolder = getOrCreateFolder_(CONFIG.PASTA_ENTRADA);
-  var files = inputFolder.getFilesByType(MimeType.PDF);
-  if (!files.hasNext()) {
-    Logger.log('Nenhum PDF encontrado em "' + CONFIG.PASTA_ENTRADA + '".');
-    Logger.log('Coloque um PDF lá e rode esta função novamente.');
-    return;
-  }
-  Logger.log('Iniciando teste — os arquivos serão processados e MOVIDOS para Processados.');
+  Logger.log('Iniciando teste — lendo respostas pendentes da planilha do Google Form.');
   processarExames();
 }

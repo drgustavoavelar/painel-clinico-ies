@@ -7,16 +7,25 @@ Tempo estimado: **10 minutos**. Roda nos servidores do Google — Mac pode estar
 ## O que este script faz
 
 ```
-PDF na pasta do Drive
+Funcionária preenche o Google Form "Acompanhamento Dr. Gustavo"
+  (campo "Paciente" + anexa o(s) PDF(s), Tipo de pedido = Exames)
        ↓ (a cada 5 min, automático)
-  Claude API analisa
+  Script lê a planilha de respostas do formulário
        ↓
-  JSON salvo no Drive
+  Agrupa por paciente (usa o campo "Paciente", não o nome do arquivo)
        ↓
-  Notion atualizado
+  Claude API analisa todos os documentos daquele paciente JUNTOS
        ↓
-  E-mail com resumo
+  JSON + resumo salvos no Drive · Notion atualizado · E-mail enviado
+       ↓
+  Linha da planilha marcada como analisada (não reprocessa de novo)
 ```
+
+**Por que não usar o nome do arquivo para identificar o paciente:** os uploads do
+Google Forms são renomeados automaticamente com o nome de quem *enviou* o
+formulário (a funcionária), não do paciente — várias pacientes diferentes podem
+ter arquivos com a mesma "segunda parte" do nome. O campo de texto "Paciente"
+da planilha é a única fonte confiável.
 
 ---
 
@@ -47,62 +56,97 @@ PDF na pasta do Drive
 
 ---
 
-## Passo 3 — Instalar o trigger (1 vez)
+## Passo 3 — Conferir a planilha de respostas
+
+O script já vem configurado para ler a planilha do formulário "Acompanhamento
+Dr. Gustavo":
+
+```javascript
+SPREADSHEET_ID: '1suyX2U99lP2Qs0leqdtRFdqFfkMLSs8ECKB9uP2w7z4',
+SHEET_GID:      584818370,
+```
+
+Se um dia o formulário mudar de planilha (ex.: recriado do zero), pegue o novo
+ID e gid assim: abra o Google Form → aba **Respostas** → ícone verde do Sheets
+→ a URL da planilha aberta tem o formato
+`.../spreadsheets/d/SPREADSHEET_ID/edit#gid=SHEET_GID`.
+
+O script também espera estas colunas na planilha (nomes exatos das perguntas do
+formulário):
+
+| Coluna | Uso |
+|---|---|
+| `Paciente` | Nome do paciente — usado para agrupar exames da mesma pessoa |
+| `Tipo de pedido` | Só processa linhas com valor `Exames` |
+| `Anexos` | Link(s) do(s) PDF(s) enviados |
+| `Analisado pela IA` | **Criada automaticamente** pelo script na primeira execução — não mexa nela manualmente, exceto para apagar o conteúdo de uma linha e forçar reprocessamento |
+
+---
+
+## Passo 4 — Instalar o trigger (1 vez)
 
 1. No editor, no menu suspenso de funções (topo, ao lado do ▶️), selecione **`instalarTrigger`**
 2. Clique em **▶️ Executar**
 3. Na primeira vez, o Google pedirá permissão para:
-   - Acessar seus arquivos no Google Drive
+   - Acessar seus arquivos no Google Drive e Planilhas
    - Enviar e-mails em seu nome
    - Conectar a serviços externos (Claude API, Notion)
 4. Clique em **"Revisar permissões"** → sua conta Google Workspace → **"Permitir"**
 5. Confira no log (painel inferior): deve aparecer:
    ```
    ✅ Trigger instalado: processarExames a cada 5 minutos.
-   ✅ Pastas do Drive criadas/verificadas.
+   ✅ Pasta de saída do Drive criada/verificada.
    ```
-
----
-
-## Passo 4 — Verificar as pastas no Drive
-
-Após o passo 3, acesse o [Google Drive](https://drive.google.com) e confirme que estas pastas foram criadas na raiz:
-
-- 📂 `IES · Exames para Analisar`   ← **aqui você vai soltar os PDFs**
-- 📂 `IES · Exames Processados`     ← análises prontas ficam aqui
-- 📂 `IES · Erros de Análise`       ← PDFs que falharam ficam aqui
-
-> Dica: adicione "IES · Exames para Analisar" aos **Atalhos** do Drive para acesso rápido.
 
 ---
 
 ## Passo 5 — Teste
 
-1. Coloque qualquer PDF de exame na pasta `IES · Exames para Analisar`
+1. Preencha o formulário "Acompanhamento Dr. Gustavo" com um paciente de teste,
+   `Tipo de pedido = Exames`, e anexe um PDF de exame
 2. No editor do Apps Script, selecione a função **`testeManual`** e clique **▶️ Executar**
 3. Aguarde ~30 segundos
 4. Confira:
    - Log no editor: deve mostrar o processamento
-   - Pasta `IES · Exames Processados`: JSON + resumo .txt criados
+   - Pasta `IES · Exames Processados` no Drive: JSON + resumo `.txt` criados
    - Notion: paciente criado/atualizado
    - E-mail em `dr.gustavoavelar@gmail.com` com o resumo
+   - Na planilha de respostas: a coluna `Analisado pela IA` da linha de teste
+     preenchida com a data/hora
 
 ---
 
 ## Uso no dia a dia
 
-Após a instalação, basta:
+Nada muda no fluxo das suas funcionárias — elas continuam preenchendo o mesmo
+formulário de sempre. A única regra nova: **usar `Tipo de pedido = Exames`**
+quando o anexo for um exame para análise clínica (outros tipos como
+Agendamentos/Dúvidas/Atestados são ignorados pela automação).
 
 ```
-Recebeu exame do paciente?
-   → Salve o PDF no iPhone/desktop
-   → Arraste para "IES · Exames para Analisar" no Drive
+Funcionária recebe exame do paciente
+   → Preenche o formulário "Acompanhamento Dr. Gustavo" (já faz isso hoje)
+   → Campo Paciente = nome completo · Tipo de pedido = Exames · anexa o PDF
    → Em até 5 minutos: e-mail chega com a análise completa
    → Copie o JSON do e-mail ou do Drive → cole no painel:
      https://drgustavoavelar.github.io/painel-clinico-ies/
 ```
 
-No iPhone: use o app **Google Drive** → pasta de atalho → "Fazer upload".
+### Vários exames do mesmo paciente na mesma rodada
+
+Se a funcionária (ou você) enviar mais de uma resposta do formulário para o
+mesmo paciente antes da próxima rodada de 5 minutos (ex.: histórico + hemograma
++ ultrassom em respostas separadas), o script agrupa tudo automaticamente pelo
+campo "Paciente" e manda **todos os documentos juntos** numa única chamada ao
+Claude — assim o histórico/anamnese serve de contexto e exames de datas
+diferentes viram snapshots corretos e separados, em vez de análises
+fragmentadas.
+
+### Reprocessar uma linha
+
+Se precisar forçar uma nova análise de uma resposta já processada, apague o
+conteúdo da célula da coluna `Analisado pela IA` naquela linha e rode
+`testeManual` (ou espere o próximo ciclo do trigger).
 
 ---
 
@@ -137,9 +181,11 @@ Para WhatsApp, seria necessário integrar o Twilio ou similar (adicionar uma cha
 |---|---|---|
 | Trigger não aparece em Gatilhos | `instalarTrigger` não foi rodado | Rode a função manualmente |
 | Erro `Propriedade "ANTHROPIC_API_KEY" não configurada` | Chave não salva | Revise o Passo 2 |
+| Erro `Colunas esperadas não encontradas na planilha` | Nome de alguma pergunta do formulário mudou | Confirme que existem colunas exatamente chamadas `Paciente`, `Tipo de pedido` e `Anexos` |
+| Erro `Aba com gid ... não encontrada` | `SHEET_GID` desatualizado (planilha recriada) | Pegue o novo gid na URL da planilha (Passo 3) e atualize `CONFIG.SHEET_GID` |
 | Erro `Banco "Pacientes em Acompanhamento" não encontrado` | Integração sem acesso ao banco | No Notion: abra o banco → "Conectar à integração" → "Painel IES" |
 | Erro `Claude API 401` | Chave Anthropic inválida ou expirada | Gere nova chave em console.anthropic.com |
-| PDF movido para "IES · Erros de Análise" | Erro no processamento | Verifique o log em Apps Script → Execuções |
+| Linha marcada com `⚠️ ERRO: ...` na planilha | Erro no processamento daquela resposta | Veja a mensagem na própria célula; corrija a causa e apague a célula para reprocessar |
 | E-mail não chega | MailApp sem permissão | Rode `instalarTrigger` de novo e autorize |
 
 ### Ver logs de execução
@@ -153,4 +199,5 @@ Apps Script → menu **Execuções** (ícone de lista) → clique em qualquer ex
 - As chaves da API ficam nas **Propriedades do Script** (criptografadas pelo Google, nunca no código)
 - O script roda sob sua conta Google Workspace — nenhum dado sai do seu ecossistema Google + Anthropic + Notion
 - O PDF é enviado ao Claude API via HTTPS e não é retido após a análise (política da Anthropic)
+- Os PDFs originais nunca são movidos ou apagados — ficam sempre no lugar de sempre, vinculados ao registro do formulário
 - Para revogar: Apps Script → Configurações → apague as propriedades; Triggers → exclua o trigger
