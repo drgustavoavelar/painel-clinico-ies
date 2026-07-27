@@ -4,6 +4,9 @@
 <meta charset="UTF-8">
 <title>Painel Clínico IES</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js" integrity="sha384-iU8HYtnGQ8Cy4zl7gbNMOhsDTTKX02BTXptVP/vqAWIaTfM7isw76iyZCsjL2eVi" crossorigin="anonymous"></script>
+<script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore-compat.js"></script>
 <style>
   :root {
     color-scheme: light;
@@ -103,6 +106,7 @@
     * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
     html, body { margin: 0; padding: 0; }
     .toolbar, #tabs, .modal-bg, footer, #btnPrint { display: none !important; }
+    #appShell { display: block !important; }
     header {
       padding: 12px 18px; margin: 0; position: relative;
       page-break-after: avoid;
@@ -146,6 +150,18 @@
 </head>
 <body>
 
+<div class="modal-bg open" id="loginGate" style="z-index:200;">
+  <div class="modal" style="text-align:center;max-width:380px;">
+    <div style="width:64px;height:64px;background:var(--cinza-bg);border-radius:16px;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;font-size:28px;">📊</div>
+    <h3 style="margin-bottom:6px">Painel Clínico IES</h3>
+    <p class="hint" id="loginStatusText" style="margin-bottom:20px">Verificando sessão…</p>
+    <button id="btnGoogleLogin" style="width:100%;padding:12px;font-size:14px;display:none">Entrar com o Google</button>
+    <p id="loginError" style="color:var(--ambar);font-size:12px;margin-top:10px;display:none"></p>
+  </div>
+</div>
+
+<div id="appShell" style="display:none">
+
 <header>
   <div class="brand">Instituto Elo de Saúde — Painel Clínico</div>
   <h1 id="hdrName">Carregando…</h1>
@@ -162,8 +178,11 @@
   <button class="secondary" id="btnImport">Importar backup (JSON)</button>
   <input type="file" id="importFile" accept="application/json" style="display:none">
   <span style="flex:1"></span>
+  <span class="hint" id="syncStatus" title="Sincronização com a nuvem">☁️ —</span>
   <span class="hint" id="snapCount"></span>
   <button class="secondary" id="btnPrint" style="border-color:var(--azul-esc);color:var(--azul-esc)">⎙ Imprimir relatório</button>
+  <span class="hint" id="userEmail" style="margin-left:8px"></span>
+  <button class="secondary" id="btnLogout" title="Sair">Sair</button>
 </div>
 
 <main>
@@ -214,7 +233,10 @@
 
   <div class="tab-panel" id="panel-prontuario">
     <div class="card">
-      <h2>Texto para prontuário</h2>
+      <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid var(--azul);padding-bottom:8px;margin-bottom:12px;">
+        <h2 style="border:none;padding:0;margin:0">Texto para prontuário</h2>
+        <button class="secondary" id="btnCopyProntuario" style="padding:5px 10px;font-size:12px">📋 Copiar</button>
+      </div>
       <p id="prontuarioText"></p>
     </div>
   </div>
@@ -239,7 +261,9 @@
 
 </main>
 
-<footer>Uso pessoal — Dr. Gustavo Avelar · CRM-GO 26553 · Instituto Elo de Saúde · Este painel não substitui julgamento clínico.</footer>
+<footer>Uso pessoal — Dr. Gustavo Avelar · CRM-GO 26553 · Instituto Elo de Saúde · Este painel não substitui julgamento clínico. Os dados sincronizam automaticamente entre seus dispositivos.</footer>
+
+</div><!-- fecha #appShell -->
 
 <div class="modal-bg" id="modalBg">
   <div class="modal">
@@ -276,7 +300,29 @@
 </div>
 
 <script>
-const STORAGE_KEY = "ies_painel_clinico_v1";
+const STORAGE_KEY = "ies_painel_clinico_v1"; // usado só como cache local de migração/backup
+const APP_ID = "painel-clinico-ies-web";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyB3ZmY47c9BPcnCIbTiF9quhYO5aJmBFqo",
+  authDomain: "instituto-elo-de-saude.firebaseapp.com",
+  projectId: "instituto-elo-de-saude",
+  storageBucket: "instituto-elo-de-saude.firebasestorage.app",
+  messagingSenderId: "521221777368",
+  appId: "1:521221777368:web:6be6959dc9c636a0b474ad"
+};
+if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const firestore = firebase.firestore();
+
+function patientsCollectionRef(uid) {
+  return firestore.collection("artifacts").doc(APP_ID).collection("users").doc(uid).collection("patients");
+}
+
+function setSyncStatus(text) {
+  const el = document.getElementById("syncStatus");
+  if (el) el.textContent = "☁️ " + text;
+}
 
 const SCHEMA_EXAMPLE = {
   patientId: "nome-sobrenome-exemplo",
@@ -302,21 +348,68 @@ const SCHEMA_EXAMPLE = {
   ]
 };
 
-function loadDB() {
+function loadLocalCache() {
   try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || { patients: {} }; }
   catch(e) { return { patients: {} }; }
 }
-function saveDB(db) { localStorage.setItem(STORAGE_KEY, JSON.stringify(db)); }
 
-function seedIfEmpty() {
-  // Painel novo: nasce vazio. Pacientes são inseridos pela interface
-  // ("+ Novo paciente" / "+ Adicionar exame") colando o JSON gerado pela skill.
-  return loadDB();
+// Grava todos os pacientes de db.patients na nuvem (Firestore) do usuário logado.
+// Também atualiza o cache local, para funcionar como fallback offline.
+function saveDB(db) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
+  const user = auth.currentUser;
+  if (!user) return Promise.resolve();
+  setSyncStatus("salvando…");
+  const batch = firestore.batch();
+  Object.values(db.patients).forEach(p => {
+    batch.set(patientsCollectionRef(user.uid).doc(p.patientId), p);
+  });
+  return batch.commit()
+    .then(() => setSyncStatus("sincronizado"))
+    .catch(err => { setSyncStatus("erro ao salvar"); alert("Erro ao salvar na nuvem: " + err.message); });
 }
 
-let DB = seedIfEmpty();
-let currentPatientId = Object.keys(DB.patients)[0];
+let DB = { patients: {} };
+let currentPatientId = null;
 let charts = [];
+let firestoreUnsubscribe = null;
+
+function subscribeToFirestore(uid) {
+  if (firestoreUnsubscribe) firestoreUnsubscribe();
+  setSyncStatus("conectando…");
+  firestoreUnsubscribe = patientsCollectionRef(uid).onSnapshot((snapshot) => {
+    const patients = {};
+    snapshot.forEach(doc => { patients[doc.id] = doc.data(); });
+    DB.patients = patients;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(DB));
+    if (!currentPatientId || !patients[currentPatientId]) {
+      currentPatientId = Object.keys(patients)[0];
+    }
+    setSyncStatus("sincronizado");
+    populatePatientSelect();
+    render();
+  }, (err) => {
+    setSyncStatus("erro de conexão");
+    console.error(err);
+  });
+}
+
+// Se houver dados salvos localmente (de uma sessão anterior sem login) e a
+// nuvem ainda estiver vazia, oferece migrar para não perder pacientes.
+function maybeMigrateLocalData(uid) {
+  const local = loadLocalCache();
+  const localCount = Object.keys(local.patients || {}).length;
+  if (localCount === 0) return;
+  patientsCollectionRef(uid).limit(1).get().then(snapshot => {
+    if (!snapshot.empty) return; // nuvem já tem dados, não sobrescrever
+    const migrar = confirm(
+      `Encontrei ${localCount} paciente(s) salvos neste navegador (de antes do login).\n` +
+      `Deseja migrar esses dados para a nuvem agora? (Recomendado — assim eles passam a sincronizar entre dispositivos)`
+    );
+    if (!migrar) return;
+    saveDB(local).then(() => alert(`✅ Migração concluída: ${localCount} paciente(s) enviado(s) para a nuvem.`));
+  });
+}
 
 function fmtDate(d) {
   const [y,m,day] = d.split("-");
@@ -670,8 +763,56 @@ document.getElementById("btnPrint").addEventListener("click", () => {
   setTimeout(() => window.print(), 50);
 });
 
-populatePatientSelect();
-render();
+document.getElementById("btnCopyProntuario").addEventListener("click", () => {
+  const text = document.getElementById("prontuarioText").textContent || "";
+  if (!text.trim()) { alert("Não há texto de prontuário para copiar neste snapshot."); return; }
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = document.getElementById("btnCopyProntuario");
+    const original = btn.textContent;
+    btn.textContent = "✓ Copiado!";
+    setTimeout(() => { btn.textContent = original; }, 2000);
+  }).catch(() => alert("Não foi possível copiar automaticamente. Selecione o texto manualmente."));
+});
+
+// ── Autenticação Google + sincronização em nuvem (Firestore) ────────────────
+document.getElementById("btnGoogleLogin").addEventListener("click", () => {
+  const provider = new firebase.auth.GoogleAuthProvider();
+  document.getElementById("loginError").style.display = "none";
+  document.getElementById("loginStatusText").textContent = "Abrindo login do Google…";
+  auth.signInWithPopup(provider).catch(err => {
+    document.getElementById("loginStatusText").textContent = "Entre com sua conta Google para continuar.";
+    const errEl = document.getElementById("loginError");
+    errEl.textContent = "Não foi possível fazer login: " + err.message;
+    errEl.style.display = "block";
+  });
+});
+
+document.getElementById("btnLogout").addEventListener("click", () => {
+  if (!confirm("Sair da conta? Você precisará entrar novamente para acessar os pacientes.")) return;
+  if (firestoreUnsubscribe) { firestoreUnsubscribe(); firestoreUnsubscribe = null; }
+  auth.signOut();
+});
+
+auth.onAuthStateChanged((user) => {
+  const loginGate = document.getElementById("loginGate");
+  const appShell = document.getElementById("appShell");
+  const loginBtn = document.getElementById("btnGoogleLogin");
+
+  if (user) {
+    loginGate.classList.remove("open");
+    appShell.style.display = "block";
+    document.getElementById("userEmail").textContent = user.email || "";
+    maybeMigrateLocalData(user.uid);
+    subscribeToFirestore(user.uid);
+  } else {
+    appShell.style.display = "none";
+    loginGate.classList.add("open");
+    loginBtn.style.display = "block";
+    document.getElementById("loginStatusText").textContent = "Entre com sua conta Google para acessar os prontuários com segurança e sincronização entre dispositivos.";
+    DB.patients = {};
+    currentPatientId = null;
+  }
+});
 </script>
 </body>
 </html>
