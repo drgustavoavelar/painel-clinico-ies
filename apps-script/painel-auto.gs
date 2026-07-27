@@ -3,13 +3,22 @@
 // Instituto Elo de Saúde · Dr. Gustavo Avelar
 //
 // Funcionamento:
-//   1. Um PDF de exame é colocado na pasta "IES · Exames para Analisar" no Drive
-//   2. O script (rodando a cada 5 min nos servidores do Google) detecta o arquivo
-//   3. Envia o PDF ao Claude API para análise clínica
-//   4. Salva o JSON e o resumo em texto na pasta "IES · Exames Processados"
-//   5. Cria ou atualiza o paciente no Notion "Pacientes em Acompanhamento"
-//   6. Envia um e-mail com o resumo e link para o JSON
-//   7. Move o PDF da entrada para processados
+//   1. PDF(s) de um paciente são colocados na pasta "IES · Exames para Analisar"
+//   2. O script (rodando a cada 5 min nos servidores do Google) detecta os arquivos
+//   3. Agrupa os arquivos pelo nome do paciente (extraído do nome do arquivo) —
+//      arquivos da MESMA pessoa em uma mesma rodada são enviados JUNTOS ao Claude
+//      numa única chamada, para que histórico/anamnese e exames de datas
+//      diferentes sirvam de contexto uns para os outros (hipóteses mais
+//      fidedignas), em vez de serem analisados isoladamente.
+//   4. Documentos sem valores numéricos (histórico, anamnese, prontuário) viram
+//      só contexto clínico — nunca um snapshot. Exames com datas de coleta
+//      diferentes viram snapshots SEPARADOS (um por data), preservando a
+//      comparação temporal correta.
+//   5. Salva UM JSON + resumo por paciente na pasta "IES · Exames Processados"
+//   6. Cria ou atualiza o paciente no Notion "Pacientes em Acompanhamento"
+//      (uma única atualização por paciente, usando a data mais recente)
+//   7. Envia um e-mail consolidado (um bloco por paciente, não por arquivo)
+//   8. Move os PDFs da entrada para processados
 //
 // Setup: veja SETUP.md nesta mesma pasta
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -31,6 +40,20 @@ var SYSTEM_PROMPT = 'Você é o assistente clínico do Dr. Gustavo Avelar, médi
   + 'Seu trabalho é interpretar exames laboratoriais e gerar dois produtos simultâneos:\n'
   + '1. Um resumo compacto em texto para o médico ler rapidamente.\n'
   + '2. O JSON estruturado para o Painel Clínico IES.\n\n'
+  + '━━ MÚLTIPLOS DOCUMENTOS DO MESMO PACIENTE ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n'
+  + 'Você pode receber vários documentos de um mesmo paciente numa única mensagem\n'
+  + '(ex.: histórico/anamnese + hemograma + ultrassom), enviados juntos de propósito\n'
+  + 'para que você tenha o contexto clínico completo e gere hipóteses diagnósticas\n'
+  + 'mais fidedignas — não são para analisar isoladamente.\n\n'
+  + '- Documentos SEM valores numéricos (histórico, anamnese, prontuário, evolução\n'
+  + '  de consulta) NUNCA viram um snapshot com métricas. Use-os apenas como\n'
+  + '  contexto clínico para enriquecer "info", "hipotese" e "sugestao" — nunca\n'
+  + '  invente marcadores a partir de texto narrativo.\n'
+  + '- Se os documentos com valores numéricos tiverem DATAS DE COLETA diferentes\n'
+  + '  entre si, gere um "snapshots" com uma entrada SEPARADA para cada data —\n'
+  + '  nunca misture valores de datas diferentes num único snapshot.\n'
+  + '- Se todos os exames numéricos forem da mesma data, gere um único snapshot\n'
+  + '  combinando os marcadores de todos os documentos dessa data.\n\n'
   + '━━ FORMATO DE SAÍDA OBRIGATÓRIO ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n'
   + '### Alterações encontradas\n'
   + '| Grupo | Achado | Conduta |\n'
@@ -50,8 +73,11 @@ var SYSTEM_PROMPT = 'Você é o assistente clínico do Dr. Gustavo Avelar, médi
   + '  "name": "Nome Completo",\n'
   + '  "prontuario": "número ou vazio",\n'
   + '  "info": "DN DD/MM/AAAA (XXa) · Sexo · contexto clínico 1 linha",\n'
-  + '  "snapshots": [ { snapshot } ]\n'
+  + '  "snapshots": [ { snapshot }, { snapshot2 } ... ]\n'
   + '}\n\n'
+  + '"snapshots" pode ter mais de um item nesta mesma resposta quando os\n'
+  + 'documentos enviados juntos cobrem datas de coleta diferentes (ver seção\n'
+  + 'acima sobre múltiplos documentos).\n\n'
   + 'Schema do snapshot:\n'
   + '{\n'
   + '  "date": "AAAA-MM-DD",\n'
@@ -96,31 +122,75 @@ function getApiKey_(name) {
   return val;
 }
 
+// ── Agrupamento de arquivos por paciente ──────────────────────────────────────
+// Nome do arquivo segue o padrão "AAAA-MM-DD - Tipo do exame - Nome Completo.pdf"
+// — o nome do paciente é sempre o último segmento antes da extensão.
+function extractPatientNameFromFilename_(filename) {
+  var base = filename.replace(/\.pdf$/i, '');
+  var parts = base.split(' - ');
+  return parts[parts.length - 1].trim();
+}
+
+// Normaliza para agrupar variações do mesmo nome (acentos, maiúsculas,
+// conectivos "de/da/do" que às vezes aparecem/somem entre um arquivo e outro).
+function normalizePatientName_(name) {
+  return name
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/\b(de|da|do|dos|das)\b/g, '')
+    .replace(/[^a-z\s]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function groupFilesByPatient_(files) {
+  var groups = {}; // chave normalizada -> { displayName, files: [] }
+  for (var i = 0; i < files.length; i++) {
+    var file = files[i];
+    var name = extractPatientNameFromFilename_(file.getName());
+    var key = normalizePatientName_(name);
+    if (!groups[key]) groups[key] = { displayName: name, files: [] };
+    groups[key].files.push(file);
+  }
+  return groups;
+}
+
 // ── Claude API ────────────────────────────────────────────────────────────────
-function callClaude_(base64Pdf, filename) {
+// Envia um ou mais PDFs do MESMO paciente numa única chamada, para que o
+// Claude tenha o contexto completo (histórico + exames de datas diferentes).
+function callClaudeMultiDoc_(files, displayName) {
   var apiKey = getApiKey_('ANTHROPIC_API_KEY');
+
+  var content = [];
+  var fileNames = [];
+  for (var i = 0; i < files.length; i++) {
+    var blob = files[i].getBlob();
+    var bytes = blob.getBytes();
+    if (bytes.length > CONFIG.MAX_PDF_BYTES) {
+      throw new Error('Arquivo "' + files[i].getName() + '" muito grande (' +
+        Math.round(bytes.length / 1024 / 1024) + ' MB). Limite: 8 MB por arquivo.');
+    }
+    content.push({
+      type: 'document',
+      source: { type: 'base64', media_type: 'application/pdf', data: Utilities.base64Encode(bytes) }
+    });
+    fileNames.push(files[i].getName());
+  }
+
+  var instructionText = files.length > 1
+    ? 'Os ' + files.length + ' documentos acima são do mesmo paciente (' + displayName + '), enviados juntos ' +
+      'de propósito para contextualizar a análise. Arquivos: ' + fileNames.join(' | ') + '. ' +
+      'Gere a tabela de alterações + JSON consolidado para o Painel Clínico IES, seguindo as regras ' +
+      'sobre múltiplos documentos e datas diferentes descritas nas instruções do sistema.'
+    : 'Analise o exame acima e gere a tabela de alterações + JSON para o Painel Clínico IES. Arquivo: ' + fileNames[0];
+
+  content.push({ type: 'text', text: instructionText });
 
   var payload = JSON.stringify({
     model: CONFIG.MODELO_CLAUDE,
     max_tokens: 8000,
     system: SYSTEM_PROMPT,
-    messages: [{
-      role: 'user',
-      content: [
-        {
-          type: 'document',
-          source: {
-            type: 'base64',
-            media_type: 'application/pdf',
-            data: base64Pdf
-          }
-        },
-        {
-          type: 'text',
-          text: 'Analise o exame laboratorial acima e gere a tabela de alterações + JSON para o Painel Clínico IES. Arquivo: ' + filename
-        }
-      ]
-    }]
+    messages: [{ role: 'user', content: content }]
   });
 
   var resp = UrlFetchApp.fetch('https://api.anthropic.com/v1/messages', {
@@ -204,7 +274,13 @@ function updateNotion_(patientData) {
   if (!dbId) return '⚠️ Banco "' + CONFIG.NOTION_DB_NAME + '" não encontrado. Verifique se a integração tem acesso.';
 
   var snapshots = patientData.snapshots || [];
-  var snap = snapshots.length > 0 ? snapshots[snapshots.length - 1] : {};
+  // Ordena por data para garantir que pegamos o snapshot mais RECENTE —
+  // importante quando a resposta traz vários snapshots (datas diferentes
+  // enviadas juntas na mesma rodada), já que a ordem no array não é garantida.
+  var sortedSnaps = snapshots.slice().sort(function(a, b) {
+    return (a.date || '').localeCompare(b.date || '');
+  });
+  var snap = sortedSnaps.length > 0 ? sortedSnaps[sortedSnaps.length - 1] : {};
   var sintese = snap.sintese || [];
   var date = snap.date || '';
 
@@ -265,41 +341,33 @@ function extractJson_(text) {
   }
 }
 
-// ── Processamento de um arquivo ───────────────────────────────────────────────
-function processFile_(file, outputFolder) {
-  var filename = file.getName();
-  Logger.log('→ Processando: ' + filename);
+// ── Processamento de um grupo de arquivos (todos do mesmo paciente) ───────────
+function processPatientGroup_(displayName, files, outputFolder) {
+  var fileNames = files.map(function(f) { return f.getName(); });
+  Logger.log('→ Processando paciente "' + displayName + '" (' + files.length + ' arquivo(s)): ' + fileNames.join(', '));
 
-  var blob = file.getBlob();
-  var bytes = blob.getBytes();
-
-  if (bytes.length > CONFIG.MAX_PDF_BYTES) {
-    throw new Error('Arquivo muito grande (' + Math.round(bytes.length / 1024 / 1024) + ' MB). Limite: 8 MB.');
-  }
-
-  var base64 = Utilities.base64Encode(bytes);
-  var result = callClaude_(base64, filename);
-  Logger.log('Análise concluída para: ' + filename);
+  var result = callClaudeMultiDoc_(files, displayName);
+  Logger.log('Análise concluída para: ' + displayName);
 
   var patientData = extractJson_(result);
   if (!patientData) throw new Error('JSON não encontrado na resposta do Claude.');
 
-  // Salvar arquivos no Drive
+  // Salvar UM JSON + resumo por paciente (não por arquivo)
   var dateStr = Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'yyyy-MM-dd');
-  var baseName = filename.replace(/\.pdf$/i, '');
+  var safeName = displayName.replace(/[\/\\:*?"<>|]/g, '').trim();
 
   var jsonFile = outputFolder.createFile(
-    baseName + '_analise_' + dateStr + '.json',
+    safeName + '_analise_' + dateStr + '.json',
     JSON.stringify(patientData, null, 2),
     'application/json'
   );
   outputFolder.createFile(
-    baseName + '_resumo_' + dateStr + '.txt',
+    safeName + '_resumo_' + dateStr + '.txt',
     result,
     'text/plain'
   );
 
-  // Atualizar Notion
+  // Atualizar Notion — uma única vez por paciente
   var notionResult = '(Notion ignorado)';
   try {
     notionResult = updateNotion_(patientData);
@@ -309,11 +377,15 @@ function processFile_(file, outputFolder) {
     Logger.log(notionResult);
   }
 
-  // Mover PDF de entrada → processados
-  file.moveTo(outputFolder);
+  // Mover TODOS os arquivos do grupo para processados
+  for (var i = 0; i < files.length; i++) {
+    files[i].moveTo(outputFolder);
+  }
 
   return {
-    patient:      patientData.name || filename,
+    patient:      patientData.name || displayName,
+    fileCount:    files.length,
+    fileNames:    fileNames,
     notionResult: notionResult,
     jsonUrl:      jsonFile.getUrl(),
     result:       result
@@ -326,37 +398,48 @@ function processarExames() {
   var outputFolder = getOrCreateFolder_(CONFIG.PASTA_PROCESSADOS);
   var errorFolder  = getOrCreateFolder_(CONFIG.PASTA_ERROS);
 
-  var files = inputFolder.getFilesByType(MimeType.PDF);
-  var processed = [];
-  var errors    = [];
+  var fileIterator = inputFolder.getFilesByType(MimeType.PDF);
+  var allFiles = [];
+  while (fileIterator.hasNext()) allFiles.push(fileIterator.next());
 
-  while (files.hasNext()) {
-    var file = files.next();
-    try {
-      var r = processFile_(file, outputFolder);
-      processed.push(r);
-    } catch (e) {
-      Logger.log('❌ Erro em ' + file.getName() + ': ' + e.message);
-      errors.push({ file: file.getName(), error: e.message });
-      try { file.moveTo(errorFolder); } catch (_) {}
-    }
-  }
-
-  if (processed.length === 0 && errors.length === 0) {
+  if (allFiles.length === 0) {
     Logger.log('Nenhum PDF novo na pasta de entrada.');
     return;
   }
 
-  // Compor e-mail de notificação
-  var subject = '[Painel IES] ' + processed.length + ' exame(s) analisado(s)';
+  // Agrupa por paciente ANTES de chamar o Claude — arquivos da mesma pessoa
+  // na mesma rodada são analisados juntos, não isoladamente.
+  var groups = groupFilesByPatient_(allFiles);
+  var groupKeys = Object.keys(groups);
+
+  var processed = [];
+  var errors    = [];
+
+  for (var g = 0; g < groupKeys.length; g++) {
+    var group = groups[groupKeys[g]];
+    try {
+      var r = processPatientGroup_(group.displayName, group.files, outputFolder);
+      processed.push(r);
+    } catch (e) {
+      Logger.log('❌ Erro no paciente "' + group.displayName + '": ' + e.message);
+      errors.push({ file: group.displayName + ' (' + group.files.length + ' arquivo(s))', error: e.message });
+      for (var m = 0; m < group.files.length; m++) {
+        try { group.files[m].moveTo(errorFolder); } catch (_) {}
+      }
+    }
+  }
+
+  // Compor e-mail de notificação — um bloco por paciente, não por arquivo
+  var subject = '[Painel IES] ' + processed.length + ' paciente(s) analisado(s)';
   var body = '';
 
   if (processed.length > 0) {
-    body += '✅ ' + processed.length + ' exame(s) processado(s):\n\n';
+    body += '✅ ' + processed.length + ' paciente(s) processado(s):\n\n';
     for (var i = 0; i < processed.length; i++) {
       var p = processed[i];
       body += '─────────────────────────────\n';
       body += 'Paciente: ' + p.patient + '\n';
+      body += 'Arquivos analisados juntos (' + p.fileCount + '): ' + p.fileNames.join(', ') + '\n';
       body += p.notionResult + '\n\n';
 
       // Trecho do resumo
