@@ -1,627 +1,677 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Painel Clínico IES - Premium</title>
-  
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      theme: { extend: { screens: { 'print': {'raw': 'print'} } } }
+<meta charset="UTF-8">
+<title>Painel Clínico IES</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js" integrity="sha384-iU8HYtnGQ8Cy4zl7gbNMOhsDTTKX02BTXptVP/vqAWIaTfM7isw76iyZCsjL2eVi" crossorigin="anonymous"></script>
+<style>
+  :root {
+    color-scheme: light;
+    --azul: #0040F9;
+    --azul-esc: #00113F;
+    --quase-preto: #1C1F2A;
+    --branco: #FDFDFD;
+    --cinza-bg: #F2F5FF;
+    --cinza-borda: #E1E6F5;
+    --ambar: #B4650A;
+    --ambar-bg: #FCEFDC;
+    --teal: #0B6E7A;
+    --teal-bg: #E3F3F5;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--branco); color: var(--quase-preto);
+    font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+    font-size: 14px; line-height: 1.5;
+  }
+  header {
+    background: linear-gradient(135deg, var(--azul-esc), var(--azul));
+    color: var(--branco); padding: 20px 28px;
+  }
+  header .brand { font-size: 12px; letter-spacing: 1.5px; opacity: .85; text-transform: uppercase; margin-bottom: 4px; }
+  header h1 { margin: 0; font-size: 22px; font-weight: 700; }
+  header .sub { font-size: 13px; opacity: .9; margin-top: 4px; }
+  .toolbar {
+    display: flex; gap: 10px; align-items: center; padding: 12px 28px;
+    background: var(--cinza-bg); border-bottom: 1px solid var(--cinza-borda); flex-wrap: wrap;
+  }
+  select, button, textarea, input {
+    font-family: inherit; font-size: 13px; border-radius: 8px; border: 1px solid var(--cinza-borda);
+  }
+  select { padding: 8px 10px; background: var(--branco); color: var(--quase-preto); }
+  button {
+    padding: 8px 14px; background: var(--azul); color: var(--branco); border: none; cursor: pointer; font-weight: 600;
+  }
+  button.secondary { background: var(--branco); color: var(--azul); border: 1px solid var(--azul); }
+  button:hover { opacity: .9; }
+  main { padding: 22px 28px 60px; max-width: 1100px; margin: 0 auto; }
+  .card {
+    background: var(--branco); border: 1px solid var(--cinza-borda); border-radius: 12px;
+    padding: 18px 20px; margin-bottom: 18px;
+  }
+  .card h2 { margin: 0 0 12px; font-size: 16px; color: var(--azul-esc); border-bottom: 2px solid var(--azul); padding-bottom: 8px; }
+  .patient-meta { display: flex; flex-wrap: wrap; gap: 6px 22px; font-size: 13px; color: #444; }
+  .patient-meta b { color: var(--azul-esc); }
+  .tabs { display: flex; gap: 4px; margin-bottom: 16px; border-bottom: 1px solid var(--cinza-borda); flex-wrap: wrap; }
+  .tab-btn {
+    background: none; border: none; padding: 10px 14px; cursor: pointer; font-weight: 600; color: #667;
+    border-bottom: 3px solid transparent; border-radius: 0;
+  }
+  .tab-btn.active { color: var(--azul); border-bottom-color: var(--azul); }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+  .metric-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px,1fr)); gap: 10px; }
+  .metric {
+    border: 1px solid var(--cinza-borda); border-radius: 10px; padding: 10px 12px; background: var(--cinza-bg);
+  }
+  .metric.abn { background: var(--ambar-bg); border-color: #EAC796; }
+  .metric.noref { background: var(--branco); }
+  .metric .name { font-weight: 700; font-size: 12.5px; color: var(--azul-esc); }
+  .metric .val { font-size: 18px; font-weight: 700; margin: 2px 0; }
+  .metric .ref { font-size: 11px; color: #667; }
+  .metric .flag { font-size: 11px; font-weight: 700; }
+  .metric.abn .flag { color: var(--ambar); }
+  .metric.noref .flag { color: #778; font-weight: 600; font-style: italic; }
+  .metric:not(.abn):not(.noref) .flag { color: var(--azul); }
+  .finding { border-left: 4px solid var(--azul); padding: 8px 12px; margin-bottom: 10px; background: var(--cinza-bg); border-radius: 0 8px 8px 0; }
+  .finding .exame { font-weight: 700; font-style: italic; color: var(--azul-esc); margin-bottom: 4px; }
+  .tag { display: inline-block; font-weight: 700; font-size: 11.5px; padding: 1px 7px; border-radius: 5px; margin-right: 6px; }
+  .tag.achado { background: #DCE5FF; color: var(--azul-esc); }
+  .tag.hipotese { background: var(--ambar-bg); color: var(--ambar); }
+  .tag.sugestao { background: var(--teal-bg); color: var(--teal); }
+  ul.plain { margin: 6px 0; padding-left: 18px; }
+  ul.plain li { margin-bottom: 6px; }
+  .chart-wrap { position: relative; height: 220px; margin-bottom: 4px; }
+  .chart-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px,1fr)); gap: 18px; }
+  .modal-bg {
+    display: none; position: fixed; inset: 0; background: rgba(0,17,63,.5); align-items: center; justify-content: center; z-index: 50;
+  }
+  .modal-bg.open { display: flex; }
+  .modal { background: var(--branco); border-radius: 12px; padding: 20px; width: 640px; max-width: 92vw; max-height: 85vh; overflow: auto; }
+  .modal h3 { margin-top: 0; color: var(--azul-esc); }
+  .modal textarea { width: 100%; height: 260px; font-family: ui-monospace, Menlo, monospace; font-size: 12px; padding: 10px; }
+  .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+  .hint { font-size: 12px; color: #667; margin-top: 8px; }
+  .empty { color: #778; font-style: italic; padding: 10px 0; }
+  .snap-list { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+  .snap-chip { font-size: 11.5px; background: var(--cinza-bg); border: 1px solid var(--cinza-borda); padding: 3px 9px; border-radius: 999px; color: var(--azul-esc); }
+  footer { text-align: center; font-size: 11px; color: #99a; padding: 20px; }
+
+  /* ── Impressão ── */
+  @page { size: A4; margin: 12mm 10mm; }
+  @media print {
+    * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+    html, body { margin: 0; padding: 0; }
+    .toolbar, #tabs, .modal-bg, footer, #btnPrint { display: none !important; }
+    header {
+      padding: 12px 18px; margin: 0; position: relative;
+      page-break-after: avoid;
     }
-  </script>
-  
-  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  <!-- Firebase Scripts -->
-  <script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-auth-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore-compat.js"></script>
-  
-  <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
-    ::-webkit-scrollbar { width: 6px; height: 6px; }
-    ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
-    ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-    
-    @media print {
-      @page { margin: 1cm; }
-      body { -webkit-print-color-adjust: exact; print-color-adjust: exact; background-color: white !important; }
-      .print-break-inside-avoid { break-inside: avoid; page-break-inside: avoid; }
-      .shadow-sm, .shadow-md, .shadow-xl { box-shadow: none !important; border: 1px solid #e2e8f0 !important; }
-      ::-webkit-scrollbar { display: none; }
+    header h1 { font-size: 16px; margin: 2px 0; }
+    header .brand { font-size: 11px; }
+    header .sub { font-size: 12px; margin-top: 2px; }
+    body { font-size: 12px; background: #fff; }
+    main { padding: 8px 18px 20px; max-width: 100%; margin: 0; }
+    .tab-panel { display: block !important; }
+    .card {
+      margin-bottom: 10px; padding: 10px 14px; break-inside: avoid; page-break-inside: avoid;
+      break-after: auto;
     }
-    
-    @keyframes fadeOut {
-      0% { opacity: 1; transform: translateY(0); }
-      70% { opacity: 1; transform: translateY(0); }
-      100% { opacity: 0; transform: translateY(-10px); }
+    .card h2 { font-size: 12px; margin: 0 0 6px; padding-bottom: 4px; }
+    .patient-meta { font-size: 12px; gap: 4px 18px; }
+    .metric-grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 6px; }
+    .metric { padding: 6px 8px; }
+    .metric .name { font-size: 11px; }
+    .metric .val { font-size: 14px; }
+    .metric .ref { font-size: 10px; }
+    .chart-wrap { height: 220px !important; break-inside: avoid; }
+    .chart-grid { grid-template-columns: 1fr; gap: 0; }
+    .chart-item {
+      break-inside: avoid; page-break-inside: avoid;
+      margin-bottom: 18px; padding-bottom: 4px;
+      border-bottom: 1px solid var(--cinza-borda);
     }
-    .toast-anim { animation: fadeOut 2.5s forwards; }
-  </style>
+    .chart-item:last-child { border-bottom: none; }
+    .finding { padding: 5px 8px; margin-bottom: 6px; font-size: 11px; }
+    .finding .exame { font-size: 11px; }
+    .tag { font-size: 10px; padding: 1px 5px; }
+    ul.plain { margin: 4px 0; padding-left: 16px; }
+    ul.plain li { margin-bottom: 3px; font-size: 11px; }
+    .print-section-break { page-break-before: always; margin-top: 0; padding-top: 0; break-before: page; }
+    .print-date { font-size: 10px; }
+    .snap-list { gap: 6px; margin-top: 4px; }
+    .snap-chip { font-size: 10px; padding: 2px 6px; }
+  }
+</style>
 </head>
-<body class="bg-slate-50 text-slate-900 print:bg-white">
-  <div id="root" class="h-screen w-screen print:h-auto print:w-full"></div>
+<body>
 
-  <script type="text/babel">
-    const { useState, useEffect, useMemo } = React;
+<header>
+  <div class="brand">Instituto Elo de Saúde — Painel Clínico</div>
+  <h1 id="hdrName">Carregando…</h1>
+  <div class="sub" id="hdrSub"></div>
+</header>
 
-    // SUAS CHAVES DO FIREBASE
-    const firebaseConfig = {
-      apiKey: "AIzaSyB3ZmY47c9BPcnCIbTiF9quhYO5aJmBFqo",
-      authDomain: "instituto-elo-de-saude.firebaseapp.com",
-      projectId: "instituto-elo-de-saude",
-      storageBucket: "instituto-elo-de-saude.firebasestorage.app",
-      messagingSenderId: "521221777368",
-      appId: "1:521221777368:web:6be6959dc9c636a0b474ad"
-    };
+<div class="toolbar">
+  <label style="font-weight:600;color:var(--azul-esc)">Paciente:</label>
+  <input type="text" id="patientSearch" placeholder="Buscar por nome..." style="padding:8px 10px;min-width:160px">
+  <select id="patientSelect"></select>
+  <button class="secondary" id="btnNewPatient">+ Novo paciente</button>
+  <button id="btnNewSnapshot">+ Adicionar exame (snapshot)</button>
+  <button class="secondary" id="btnExport">Exportar dados (JSON)</button>
+  <button class="secondary" id="btnImport">Importar backup (JSON)</button>
+  <input type="file" id="importFile" accept="application/json" style="display:none">
+  <span style="flex:1"></span>
+  <span class="hint" id="snapCount"></span>
+  <button class="secondary" id="btnPrint" style="border-color:var(--azul-esc);color:var(--azul-esc)">⎙ Imprimir relatório</button>
+</div>
 
-    if (!firebase.apps.length) {
-      firebase.initializeApp(firebaseConfig);
+<main>
+
+  <div class="card">
+    <h2>Dados do paciente</h2>
+    <div class="patient-meta" id="patientMeta"></div>
+    <div class="snap-list" id="snapList"></div>
+  </div>
+
+  <div class="tabs" id="tabs">
+    <button class="tab-btn active" data-tab="metrics">Marcadores</button>
+    <button class="tab-btn" data-tab="trends">Tendências</button>
+    <button class="tab-btn" data-tab="findings">Achados / Hipóteses / Sugestões</button>
+    <button class="tab-btn" data-tab="sintese">Síntese</button>
+    <button class="tab-btn" data-tab="prontuario">Prontuário</button>
+    <button class="tab-btn" data-tab="paciente">Texto ao paciente</button>
+    <button class="tab-btn" data-tab="terapeutica">Sugestões terapêuticas</button>
+  </div>
+
+  <div class="tab-panel active" id="panel-metrics">
+    <div class="card">
+      <h2>Marcadores — último exame</h2>
+      <div class="metric-grid" id="metricGrid"></div>
+    </div>
+  </div>
+
+  <div class="tab-panel print-section-break" id="panel-trends">
+    <div class="card">
+      <h2>Tendências ao longo do tempo</h2>
+      <div class="chart-grid" id="chartGrid"></div>
+    </div>
+  </div>
+
+  <div class="tab-panel print-section-break" id="panel-findings">
+    <div class="card">
+      <h2>Interpretação — Achados, Hipóteses e Sugestões</h2>
+      <div id="findingsList"></div>
+    </div>
+  </div>
+
+  <div class="tab-panel" id="panel-sintese">
+    <div class="card">
+      <h2>Síntese final</h2>
+      <ul class="plain" id="sinteseList"></ul>
+    </div>
+  </div>
+
+  <div class="tab-panel" id="panel-prontuario">
+    <div class="card">
+      <h2>Texto para prontuário</h2>
+      <p id="prontuarioText"></p>
+    </div>
+  </div>
+
+  <div class="tab-panel" id="panel-paciente">
+    <div class="card">
+      <h2>Texto para o médico ler ao paciente</h2>
+      <div id="pacienteText"></div>
+    </div>
+  </div>
+
+  <div class="tab-panel" id="panel-terapeutica">
+    <div class="card">
+      <h2>Opções manipuladas</h2>
+      <ul class="plain" id="manipuladasList"></ul>
+    </div>
+    <div class="card">
+      <h2>Opções comercializadas</h2>
+      <ul class="plain" id="comercializadasList"></ul>
+    </div>
+  </div>
+
+</main>
+
+<footer>Uso pessoal — Dr. Gustavo Avelar · CRM-GO 26553 · Instituto Elo de Saúde · Este painel não substitui julgamento clínico.</footer>
+
+<div class="modal-bg" id="modalBg">
+  <div class="modal">
+    <h3 id="modalTitle">Adicionar snapshot de exame</h3>
+    <p class="hint">Cole abaixo o JSON estruturado do exame (peça para o Claude gerar esse JSON a partir da análise do PDF, seguindo o schema do botão "Ver schema"). Isso substitui os dados do paciente selecionado ou cria um novo.</p>
+    <textarea id="jsonInput" placeholder="Cole aqui o JSON..."></textarea>
+    <div class="modal-actions">
+      <button class="secondary" id="btnSchema">Ver schema</button>
+      <button class="secondary" id="btnCancelModal">Cancelar</button>
+      <button id="btnSaveModal">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="reviewBg">
+  <div class="modal" style="width: 900px; max-width: 95vw;">
+    <h3>⚠️ Conferência clínica obrigatória</h3>
+    <p class="hint" style="color: var(--ambar)">Valores com variação >30% devem ser revisados. Confirme que estão corretos antes de salvar.</p>
+    <div id="reviewTable" style="max-height: 400px; overflow-y: auto; border: 1px solid var(--cinza-borda); padding: 12px; border-radius: 8px; background: var(--cinza-bg); margin-bottom: 12px; font-size: 12px;">
+      <!-- preenchido dinamicamente -->
+    </div>
+    <div style="background: var(--ambar-bg); border-left: 4px solid var(--ambar); padding: 10px; border-radius: 4px; margin-bottom: 12px;">
+      <strong style="color: var(--ambar)">Confirmação:</strong>
+      <label style="display: block; margin-top: 8px;">
+        <input type="checkbox" id="confirmReview" style="margin-right: 8px;">
+        Confirmo que revisei os dados e os valores estão corretos
+      </label>
+    </div>
+    <div class="modal-actions">
+      <button class="secondary" id="btnRejectReview">Cancelar</button>
+      <button id="btnApproveReview" disabled>✓ Confirmar e salvar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const STORAGE_KEY = "ies_painel_clinico_v1";
+
+const SCHEMA_EXAMPLE = {
+  patientId: "nome-sobrenome-exemplo",
+  name: "Nome Sobrenome (exemplo)",
+  prontuario: "000000",
+  info: "DN 00/00/0000 (00a) · Sexo · IMC exemplo · Circunferência abdominal exemplo",
+  snapshots: [
+    {
+      date: "2026-01-01",
+      label: "Coleta 01/01/2026",
+      metrics: [
+        { key: "TSH", label: "TSH", value: 0.21, unit: "µUI/mL", refLow: 0.38, refHigh: 5.60 },
+        { key: "T4L", label: "T4 livre", value: 0.87, unit: "ng/dL", refLow: 0.54, refHigh: 1.48 }
+      ],
+      findings: [
+        { group: "Tireoide", achado: "TSH suprimido, T4L normal.", hipotese: "Hipertireoidismo subclínico vs doença não tireoidiana.", sugestao: "Repetir TSH/T4L/T3, correlacionar clínica." }
+      ],
+      sintese: ["Ponto 1...", "Ponto 2..."],
+      prontuario: "Texto corrido para o prontuário...",
+      paciente: ["Parágrafo 1 para o paciente...", "Parágrafo 2..."],
+      terapeutica: { manipuladas: ["Sugestão 1..."], comercializadas: ["Sugestão 1..."] }
     }
-    const auth = firebase.auth();
-    const db = firebase.firestore();
-    const appId = 'painel-clinico-ies-web';
+  ]
+};
 
-    // Ícones
-    const IconUser = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" /></svg>;
-    const IconPlus = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>;
-    const IconFile = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>;
-    const IconDownload = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>;
-    const IconActivity = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18L9 11.25l4.306 4.307a11.95 11.95 0 015.814-5.519l2.74-1.22m0 0l-5.94-2.28m5.94 2.28l-2.28 5.941" /></svg>;
-    const IconAlert = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>;
-    const IconCloud = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z" /></svg>;
-    const IconPrinter = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M6.72 13.829c-.24.03-.48.062-.724.092m6.524-4.31a1.5 1.5 0 01-1.38-.9m-1.425 2.1c-.24.03-.48.062-.724.092m-5.8 4.053c-.24.03-.48.062-.724.092M6.72 13.829l-1.077 4.31a1.5 1.5 0 001.455 1.861h11.75c.875 0 1.575-.75 1.455-1.861l-1.077-4.31m-12.524-3.153A2.25 2.25 0 014.5 9h15a2.25 2.25 0 012.25 2.25v2.25A2.25 2.25 0 0119.5 15.75h-15a2.25 2.25 0 01-2.25-2.25v-2.25z" /></svg>;
-    const IconSearch = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg>;
-    const IconCopy = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.56 2.25h-3.12a2.25 2.25 0 00-2.105 1.638L7.31 5.04M15.666 3.888l.348 1.152a2.25 2.25 0 01-2.105 2.859H10.09a2.25 2.25 0 01-2.104-2.859l.348-1.152M15.666 3.888A2.25 2.25 0 0117.915 6h1.22A2.25 2.25 0 0121.385 8.25v11.25A2.25 2.25 0 0119.135 21H4.865A2.25 2.25 0 012.615 18.75V8.25A2.25 2.25 0 014.865 6h1.22a2.25 2.25 0 012.249-2.112" /></svg>;
-    const IconCheck = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>;
-    const IconGoogle = () => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" className="w-5 h-5" fill="currentColor"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>;
+function loadDB() {
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || { patients: {} }; }
+  catch(e) { return { patients: {} }; }
+}
+function saveDB(db) { localStorage.setItem(STORAGE_KEY, JSON.stringify(db)); }
 
-    const checkMetricStatus = (value, min, max) => {
-      if (value === null || value === undefined) return 'neutral';
-      if (min !== undefined && value < min) return 'altered';
-      if (max !== undefined && value > max) return 'altered';
-      return 'normal';
-    };
+function seedIfEmpty() {
+  // Painel novo: nasce vazio. Pacientes são inseridos pela interface
+  // ("+ Novo paciente" / "+ Adicionar exame") colando o JSON gerado pela skill.
+  return loadDB();
+}
 
-    const SimpleLineChart = ({ data, metricName, unit }) => {
-      if (!data || data.length === 0) return null;
+let DB = seedIfEmpty();
+let currentPatientId = Object.keys(DB.patients)[0];
+let charts = [];
 
-      const width = 400;
-      const height = 150;
-      const paddingX = 40;
-      const paddingY = 30;
+function fmtDate(d) {
+  const [y,m,day] = d.split("-");
+  return `${day}/${m}/${y}`;
+}
 
-      const values = data.map(d => d.value);
-      const refLows = data.map(d => d.refLow).filter(v => v !== undefined);
-      const refHighs = data.map(d => d.refHigh).filter(v => v !== undefined);
-      
-      const minValRaw = Math.min(...values, ...(refLows.length ? refLows : []));
-      const maxValRaw = Math.max(...values, ...(refHighs.length ? refHighs : []));
-      
-      const range = maxValRaw - minValRaw || 1;
-      const minVal = minValRaw - (range * 0.1);
-      const maxVal = maxValRaw + (range * 0.1);
-      const actualRange = maxVal - minVal;
+function getMetricStatus(m) {
+  const hasLow = m.refLow !== undefined && m.refLow !== null;
+  const hasHigh = m.refHigh !== undefined && m.refHigh !== null;
+  if (!hasLow && !hasHigh) return "none"; // sem intervalo de referência informado — não é anormalidade
+  if (hasLow && m.value < m.refLow) return "below";
+  if (hasHigh && m.value > m.refHigh) return "above";
+  return "normal";
+}
 
-      const getY = (val) => height - paddingY - ((val - minVal) / actualRange) * (height - 2 * paddingY);
-      const getX = (index) => paddingX + (index * (width - 2 * paddingX)) / Math.max(1, data.length - 1);
+function populatePatientSelect() {
+  const sel = document.getElementById("patientSelect");
+  const term = (document.getElementById("patientSearch").value || "").trim().toLowerCase();
+  sel.innerHTML = "";
+  const matches = Object.values(DB.patients)
+    .filter(p => !term || p.name.toLowerCase().includes(term))
+    .sort((a,b) => a.name.localeCompare(b.name));
+  matches.forEach(p => {
+    const opt = document.createElement("option");
+    opt.value = p.patientId; opt.textContent = p.name;
+    sel.appendChild(opt);
+  });
+  // mantém o paciente atual selecionado se ainda estiver na lista filtrada; senão, cai para o primeiro resultado
+  if (matches.some(p => p.patientId === currentPatientId)) {
+    sel.value = currentPatientId;
+  } else if (matches.length > 0) {
+    currentPatientId = matches[0].patientId;
+    sel.value = currentPatientId;
+  }
+}
 
-      const points = data.map((d, i) => `${getX(i)},${getY(d.value)}`).join(' ');
-      const latestRefLow = refLows[refLows.length - 1];
-      const latestRefHigh = refHighs[refHighs.length - 1];
+function render() {
+  const p = DB.patients[currentPatientId];
+  if (!p || !p.snapshots || p.snapshots.length === 0) {
+    document.getElementById("hdrName").textContent = p ? p.name : "Sem paciente";
+    document.getElementById("hdrSub").textContent = "Nenhum snapshot cadastrado ainda.";
+    return;
+  }
+  const snaps = [...p.snapshots].sort((a,b)=> a.date.localeCompare(b.date));
+  const latest = snaps[snaps.length-1];
 
-      const hasRefRange = latestRefLow !== undefined && latestRefHigh !== undefined;
-      const refLowY = hasRefRange ? getY(latestRefLow) : null;
-      const refHighY = hasRefRange ? getY(latestRefHigh) : null;
+  document.getElementById("hdrName").textContent = p.name;
+  document.getElementById("hdrSub").textContent = `Prontuário ${p.prontuario || "—"} · Último snapshot: ${fmtDate(latest.date)} (${latest.label || ""})`;
+  document.getElementById("patientMeta").innerHTML = `<div>${p.info || ""}</div>`;
+  document.getElementById("snapList").innerHTML = snaps.map(s => `<span class="snap-chip">${fmtDate(s.date)} — ${s.label || ""}</span>`).join("");
+  document.getElementById("snapCount").textContent = `${snaps.length} snapshot(s) para este paciente`;
 
-      return (
-        <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 print-break-inside-avoid">
-          <div className="mb-2 flex justify-between items-center">
-            <h4 className="font-semibold text-slate-700">{metricName}</h4>
-            <span className="text-xs text-slate-500">{unit}</span>
-          </div>
-          <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto overflow-visible">
-            {[minValRaw, maxValRaw].map((val, i) => (
-              <g key={i}>
-                <line x1={paddingX} y1={getY(val)} x2={width - paddingX} y2={getY(val)} stroke="#e2e8f0" strokeDasharray="4" />
-                <text x={paddingX - 5} y={getY(val) + 4} fontSize="10" fill="#94a3b8" textAnchor="end">{val.toFixed(1)}</text>
-              </g>
-            ))}
-            {hasRefRange && (
-              <rect x={paddingX} y={refHighY} width={width - 2 * paddingX} height={refLowY - refHighY} fill="#0040F9" opacity="0.05" />
-            )}
-            <polyline points={points} fill="none" stroke="#0040F9" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-            {data.map((d, i) => {
-              const isAltered = checkMetricStatus(d.value, d.refLow, d.refHigh) === 'altered';
-              return (
-                <g key={i}>
-                  <circle cx={getX(i)} cy={getY(d.value)} r="4" fill={isAltered ? "#B4650A" : "#0040F9"} stroke="#ffffff" strokeWidth="1.5" />
-                  <text x={getX(i)} y={height - 10} fontSize="10" fill="#64748b" textAnchor="middle">
-                    {new Date(d.date).toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' })}
-                  </text>
-                  <text x={getX(i)} y={getY(d.value) - 10} fontSize="10" fill={isAltered ? "#B4650A" : "#1e293b"} fontWeight="bold" textAnchor="middle">
-                    {d.value}
-                  </text>
-                </g>
-              );
-            })}
-          </svg>
-        </div>
-      );
-    };
+  // Metrics grid (latest)
+  const grid = document.getElementById("metricGrid");
+  grid.innerHTML = "";
+  (latest.metrics || []).forEach(m => {
+    const status = getMetricStatus(m);
+    const div = document.createElement("div");
+    div.className = "metric" + (status === "above" || status === "below" ? " abn" : "") + (status === "none" ? " noref" : "");
+    const flagText = {
+      below: "▼ abaixo da referência",
+      above: "▲ acima da referência",
+      normal: "dentro da referência",
+      none: "sem referência"
+    }[status];
+    div.innerHTML = `
+      <div class="name">${m.label}</div>
+      <div class="val">${m.value} <span style="font-size:12px;font-weight:400">${m.unit||""}</span></div>
+      <div class="ref">Ref.: ${m.refLow ?? "–"} a ${m.refHigh ?? "–"}</div>
+      <div class="flag">${flagText}</div>
+    `;
+    grid.appendChild(div);
+  });
 
-    function PainelClinico() {
-      const [patients, setPatients] = useState([]);
-      const [selectedPatientId, setSelectedPatientId] = useState(null);
-      const [activeTab, setActiveTab] = useState('painel');
-      const [selectedSnapshotIdx, setSelectedSnapshotIdx] = useState(0);
-      
-      const [isModalOpen, setIsModalOpen] = useState(false);
-      const [modalType, setModalType] = useState('patient');
-      const [jsonInput, setJsonInput] = useState('');
-      const [jsonError, setJsonError] = useState('');
-      
-      const [user, setUser] = useState(null);
-      const [isSyncing, setIsSyncing] = useState(false);
-      const [isAuthLoading, setIsAuthLoading] = useState(true);
-      
-      const [searchTerm, setSearchTerm] = useState('');
-      const [copyStatus, setCopyStatus] = useState(false);
+  // Trends
+  const chartGrid = document.getElementById("chartGrid");
+  chartGrid.innerHTML = "";
+  charts.forEach(c => c.destroy());
+  charts = [];
+  const keys = {};
+  snaps.forEach(s => (s.metrics||[]).forEach(m => { keys[m.key] = m.label; }));
+  Object.keys(keys).forEach(key => {
+    const points = snaps.map(s => {
+      const m = (s.metrics||[]).find(mm => mm.key === key);
+      return m ? { x: s.date, y: m.value, ref: m } : null;
+    }).filter(Boolean);
+    if (points.length < 1) return;
+    const wrap = document.createElement("div");
+    wrap.className = "chart-item";
+    wrap.innerHTML = `<div style="font-weight:700;color:var(--azul-esc);margin-bottom:4px">${keys[key]}</div><div class="chart-wrap"><canvas></canvas></div>`;
+    chartGrid.appendChild(wrap);
+    const ctx = wrap.querySelector("canvas").getContext("2d");
+    const refLow = points[points.length-1].ref.refLow;
+    const refHigh = points[points.length-1].ref.refHigh;
+    const ch = new Chart(ctx, {
+      type: "line",
+      data: {
+        labels: points.map(pt => fmtDate(pt.x)),
+        datasets: [
+          { label: keys[key], data: points.map(pt => pt.y), borderColor: "#0040F9", backgroundColor: "#0040F9", tension: .2, pointRadius: 4 },
+          ...(refLow !== undefined && refLow !== null ? [{ label: "ref. mín", data: points.map(()=>refLow), borderColor: "#B4650A", borderDash: [4,4], pointRadius: 0 }] : []),
+          ...(refHigh !== undefined && refHigh !== null && refHigh < 999 ? [{ label: "ref. máx", data: points.map(()=>refHigh), borderColor: "#B4650A", borderDash: [4,4], pointRadius: 0 }] : [])
+        ]
+      },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+    });
+    charts.push(ch);
+  });
+  if (Object.keys(keys).length === 0) chartGrid.innerHTML = `<div class="empty">Sem marcadores para plotar ainda.</div>`;
 
-      useEffect(() => {
-        const unsubscribe = auth.onAuthStateChanged((u) => {
-          setUser(u);
-          setIsAuthLoading(false);
-        });
-        return () => unsubscribe();
-      }, []);
+  // Findings
+  const fdiv = document.getElementById("findingsList");
+  fdiv.innerHTML = (latest.findings||[]).map(f => `
+    <div class="finding">
+      <div class="exame">${f.group}</div>
+      <div><span class="tag achado">Achado</span>${f.achado||""}</div>
+      <div style="margin-top:4px"><span class="tag hipotese">Hipótese</span>${f.hipotese||""}</div>
+      <div style="margin-top:4px"><span class="tag sugestao">Sugestão</span>${f.sugestao||""}</div>
+    </div>
+  `).join("") || `<div class="empty">Sem achados registrados.</div>`;
 
-      useEffect(() => {
-        if (!user) return;
-        setIsSyncing(true);
-        const patientsRef = db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('patients');
-        const unsubscribe = patientsRef.onSnapshot((snapshot) => {
-          const loadedPatients = [];
-          snapshot.forEach((doc) => { loadedPatients.push(doc.data()); });
-          setPatients(loadedPatients);
-          setIsSyncing(false);
-        }, (err) => {
-          setIsSyncing(false);
-          console.error(err);
-        });
-        return () => unsubscribe();
-      }, [user]);
+  // Síntese
+  document.getElementById("sinteseList").innerHTML = (latest.sintese||[]).map(s => `<li>${s}</li>`).join("") || `<li class="empty">—</li>`;
 
-      useEffect(() => {
-        if (patients.length > 0 && !selectedPatientId) {
-          setSelectedPatientId(patients[0].patientId);
-          setSelectedSnapshotIdx(patients[0].snapshots?.length ? patients[0].snapshots.length - 1 : 0);
-        }
-      }, [patients, selectedPatientId]);
+  // Prontuário
+  document.getElementById("prontuarioText").textContent = latest.prontuario || "—";
 
-      const handleLogin = async () => {
-        try {
-          const provider = new firebase.auth.GoogleAuthProvider();
-          await auth.signInWithPopup(provider);
-        } catch (error) {
-          console.error("Erro no login:", error);
-          alert("Não foi possível fazer o login com o Google.");
-        }
-      };
+  // Paciente
+  document.getElementById("pacienteText").innerHTML = (latest.paciente||[]).map(t => `<p>${t}</p>`).join("");
 
-      const handleLogout = async () => {
-        await auth.signOut();
-        setPatients([]);
-        setSelectedPatientId(null);
-      };
+  // Terapêutica
+  document.getElementById("manipuladasList").innerHTML = (latest.terapeutica?.manipuladas||[]).map(s => `<li>${s}</li>`).join("") || `<li class="empty">—</li>`;
+  document.getElementById("comercializadasList").innerHTML = (latest.terapeutica?.comercializadas||[]).map(s => `<li>${s}</li>`).join("") || `<li class="empty">—</li>`;
+}
 
-      const saveToCloud = async (patientData) => {
-        if (!user) return;
-        setIsSyncing(true);
-        try {
-          const docRef = db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('patients').doc(patientData.patientId);
-          await docRef.set(patientData);
-        } catch (error) {
-          console.error(error);
-        } finally {
-          setIsSyncing(false);
-        }
-      };
+document.getElementById("tabs").addEventListener("click", (e) => {
+  const btn = e.target.closest(".tab-btn");
+  if (!btn) return;
+  document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+  document.querySelectorAll(".tab-panel").forEach(p => p.classList.remove("active"));
+  btn.classList.add("active");
+  document.getElementById("panel-" + btn.dataset.tab).classList.add("active");
+});
 
-      const handlePrint = () => { window.print(); };
+document.getElementById("patientSelect").addEventListener("change", (e) => {
+  currentPatientId = e.target.value;
+  render();
+});
 
-      const handleExport = () => {
-        const dataStr = JSON.stringify(patients, null, 2);
-        const blob = new Blob([dataStr], { type: "application/json" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `painel_ies_backup_${new Date().toISOString().split('T')[0]}.json`;
-        a.click();
-        URL.revokeObjectURL(url);
-      };
+document.getElementById("patientSearch").addEventListener("input", () => {
+  populatePatientSelect();
+  render();
+});
 
-      const handleCopyProntuario = () => {
-        const currentPatient = patients.find(p => p.patientId === selectedPatientId);
-        const currentSnapshot = currentPatient?.snapshots[selectedSnapshotIdx] || currentPatient?.snapshots[currentPatient.snapshots.length - 1];
-        if (currentSnapshot && currentSnapshot.prontuario) {
-          navigator.clipboard.writeText(currentSnapshot.prontuario).then(() => {
-            setCopyStatus(true);
-            setTimeout(() => setCopyStatus(false), 2500);
-          }).catch(err => {
-            const textArea = document.createElement("textarea");
-            textArea.value = currentSnapshot.prontuario;
-            document.body.appendChild(textArea);
-            textArea.select();
-            document.execCommand("copy");
-            textArea.remove();
-            setCopyStatus(true);
-            setTimeout(() => setCopyStatus(false), 2500);
-          });
-        }
-      };
+document.getElementById("btnNewPatient").addEventListener("click", () => {
+  document.getElementById("modalTitle").textContent = "Novo paciente (cole o JSON completo)";
+  document.getElementById("jsonInput").value = "";
+  document.getElementById("modalBg").classList.add("open");
+});
 
-      const handleImportJson = async () => {
-        try {
-          setJsonError('');
-          const parsedData = JSON.parse(jsonInput);
-          if (modalType === 'patient') {
-            if (Array.isArray(parsedData)) {
-              for (const patient of parsedData) {
-                if (!patient.patientId || !patient.name || !Array.isArray(patient.snapshots)) throw new Error("JSON inválido para Paciente.");
-                await saveToCloud(patient);
-              }
-              setIsModalOpen(false);
-              setJsonInput('');
-              return;
-            }
-            if (!parsedData.patientId || !parsedData.name || !Array.isArray(parsedData.snapshots)) throw new Error("JSON inválido para Paciente.");
-            await saveToCloud(parsedData);
-            setSelectedPatientId(parsedData.patientId);
-            setSelectedSnapshotIdx(parsedData.snapshots.length - 1);
-          } else if (modalType === 'snapshot') {
-            if (!parsedData.date || !Array.isArray(parsedData.metrics)) throw new Error("JSON inválido para Snapshot.");
+document.getElementById("btnNewSnapshot").addEventListener("click", () => {
+  document.getElementById("modalTitle").textContent = "Adicionar snapshot ao paciente atual (cole apenas o objeto do snapshot)";
+  document.getElementById("jsonInput").value = "";
+  document.getElementById("modalBg").classList.add("open");
+});
 
-            const currentPatientData = patients.find(p => p.patientId === selectedPatientId);
-            if (!currentPatientData) throw new Error("Nenhum paciente selecionado.");
-            const updatedPatient = {
-              ...currentPatientData,
-              snapshots: [...currentPatientData.snapshots, parsedData].sort((a, b) => new Date(a.date) - new Date(b.date))
-            };
-            await saveToCloud(updatedPatient);
-            setSelectedSnapshotIdx(updatedPatient.snapshots.length - 1);
-          }
-          setIsModalOpen(false);
-          setJsonInput('');
-        } catch (err) {
-          setJsonError(err.message);
-        }
-      };
+document.getElementById("btnCancelModal").addEventListener("click", () => {
+  document.getElementById("modalBg").classList.remove("open");
+});
 
-      const currentPatient = patients.find(p => p.patientId === selectedPatientId);
-      const currentSnapshot = currentPatient?.snapshots[selectedSnapshotIdx] || currentPatient?.snapshots[currentPatient.snapshots.length - 1];
+document.getElementById("btnSchema").addEventListener("click", () => {
+  document.getElementById("jsonInput").value = JSON.stringify(SCHEMA_EXAMPLE, null, 2);
+});
 
-      const filteredPatients = patients.filter(p => {
-        const term = searchTerm.toLowerCase();
-        return p.name.toLowerCase().includes(term) || (p.prontuario && p.prontuario.toLowerCase().includes(term));
+function compareMetrics(oldMetrics, newMetrics) {
+  const diffs = [];
+  const oldMap = {};
+  const newMap = {};
+  (oldMetrics || []).forEach(m => { oldMap[m.key] = m; });
+  (newMetrics || []).forEach(m => { newMap[m.key] = m; });
+
+  // Detecta mudanças
+  Object.keys(newMap).forEach(key => {
+    const oldM = oldMap[key];
+    const newM = newMap[key];
+    if (!oldM) return; // novo marcador, sem problema
+    if (!oldM.value || oldM.value === 0) return; // evita divisão por zero
+    const pctChange = Math.abs(oldM.value - newM.value) / oldM.value * 100;
+    if (pctChange > 30) {
+      diffs.push({
+        key: key,
+        label: newM.label,
+        old: oldM.value,
+        new: newM.value,
+        unit: newM.unit,
+        pctChange: pctChange.toFixed(1)
       });
-
-      const trendData = useMemo(() => {
-        if (!currentPatient) return [];
-        const metricsMap = {};
-        currentPatient.snapshots.forEach(snap => {
-          snap.metrics?.forEach(m => {
-            if (!metricsMap[m.key]) metricsMap[m.key] = { label: m.label, unit: m.unit, data: [] };
-            metricsMap[m.key].data.push({ date: snap.date, value: m.value, refLow: m.refLow, refHigh: m.refHigh });
-          });
-        });
-        return Object.values(metricsMap).filter(m => m.data.length > 0);
-      }, [currentPatient]);
-
-      if (isAuthLoading) {
-        return <div className="flex h-screen items-center justify-center bg-slate-50 text-slate-500">Carregando painel...</div>;
-      }
-
-      // TELA DE LOGIN DO GOOGLE
-      if (!user) {
-        return (
-          <div className="flex h-screen items-center justify-center bg-slate-50 p-4">
-            <div className="max-w-md w-full bg-white p-8 rounded-2xl shadow-xl border border-slate-100 text-center">
-              <div className="w-20 h-20 bg-[#0040F9]/10 text-[#0040F9] rounded-2xl flex items-center justify-center mx-auto mb-6">
-                <IconActivity />
-              </div>
-              <h2 className="text-2xl font-bold text-slate-800 mb-2">Painel Clínico IES</h2>
-              <p className="text-slate-500 mb-8 text-sm leading-relaxed">
-                Acesso restrito. Faça o login com a sua conta do Google Workspace para acessar os prontuários dos pacientes com segurança.
-              </p>
-              <button 
-                onClick={handleLogin} 
-                className="w-full flex items-center justify-center gap-3 px-6 py-3.5 bg-white border border-slate-200 text-slate-700 rounded-xl font-medium shadow-sm hover:bg-slate-50 hover:shadow transition-all"
-              >
-                <IconGoogle />
-                Entrar com o Google
-              </button>
-            </div>
-          </div>
-        );
-      }
-
-      return (
-        <div className="flex h-screen overflow-hidden print:h-auto print:overflow-visible transition-all duration-300">
-          
-          <div className="w-72 bg-[#00113F] text-white flex flex-col shadow-xl z-10 flex-shrink-0 print:hidden relative">
-            <div className="p-6 border-b border-white/10">
-              <div className="flex justify-between items-start">
-                <h1 className="text-xl font-bold tracking-tight text-white flex items-center gap-2">
-                  <IconActivity /> Painel IES
-                </h1>
-                <div className="flex items-center gap-1 text-[10px] bg-white/10 px-2 py-1 rounded-full text-blue-200">
-                  <div className={`${isSyncing ? 'animate-pulse' : ''}`}><IconCloud /></div>
-                  {isSyncing ? 'Sync...' : 'Online'}
-                </div>
-              </div>
-              <div className="mt-3 flex justify-between items-center">
-                <p className="text-xs text-blue-200 opacity-80 truncate" title={user.email}>{user.email}</p>
-                <button onClick={handleLogout} className="text-xs text-red-400 hover:text-red-300 hover:underline">Sair</button>
-              </div>
-            </div>
-
-            <div className="px-4 py-3 bg-black/20">
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-blue-200/50">
-                  <IconSearch />
-                </div>
-                <input
-                  type="text"
-                  placeholder="Buscar paciente..."
-                  className="w-full pl-9 pr-3 py-1.5 bg-white/10 border border-white/10 rounded-lg text-sm text-white placeholder-blue-200/50 focus:outline-none focus:ring-1 focus:ring-blue-400 focus:bg-white/20 transition-all"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                />
-              </div>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-4 space-y-2">
-              <div className="text-xs font-semibold text-blue-300 uppercase tracking-wider mb-3 px-2 flex justify-between">
-                <span>Pacientes</span>
-                <span className="opacity-60">{filteredPatients.length}</span>
-              </div>
-              
-              {filteredPatients.length === 0 ? (
-                <div className="text-xs text-center text-blue-200/50 py-4">Nenhum paciente encontrado.</div>
-              ) : (
-                filteredPatients.map(p => (
-                  <button key={p.patientId} onClick={() => { setSelectedPatientId(p.patientId); setSelectedSnapshotIdx(p.snapshots.length - 1); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all text-left ${selectedPatientId === p.patientId ? 'bg-[#0040F9] text-white font-medium shadow-md' : 'text-slate-300 hover:bg-white/10 hover:text-white'}`}>
-                    <IconUser />
-                    <div className="truncate">
-                      <div className="truncate">{p.name}</div>
-                      <div className="text-[10px] opacity-70 truncate">{p.prontuario || 'Sem prontuário'}</div>
-                    </div>
-                  </button>
-                ))
-              )}
-            </div>
-
-            <div className="p-4 border-t border-white/10 space-y-3 bg-[#00113F]">
-              <button onClick={() => { setModalType('patient'); setJsonInput(''); setJsonError(''); setIsModalOpen(true); }} className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-[#0040F9] hover:bg-blue-600 text-white rounded-lg text-sm font-medium transition-colors">
-                <IconPlus /> Novo Paciente
-              </button>
-              <button onClick={handleExport} className="w-full flex items-center justify-center gap-2 px-4 py-2 text-blue-200 hover:text-white text-xs transition-colors">
-                <IconDownload /> Exportar Backup JSON
-              </button>
-            </div>
-          </div>
-
-          <div className="flex-1 flex flex-col h-full overflow-hidden bg-slate-50 print:bg-white print:h-auto print:overflow-visible print:block">
-            {currentPatient ? (
-              <>
-                <div className="hidden print:block text-center mb-6 pb-4 border-b-2 border-slate-200">
-                  <h1 className="text-2xl font-bold text-slate-800 flex items-center justify-center gap-2">
-                    <IconActivity /> Instituto Elo de Saúde
-                  </h1>
-                  <p className="text-slate-500 mt-1">Relatório Clínico e Análise Laboratorial</p>
-                </div>
-
-                <header className="bg-white px-8 py-6 border-b border-slate-200 flex justify-between items-start flex-shrink-0 print:border-none print:p-0 print:mb-6 transition-all">
-                  <div>
-                    <h2 className="text-2xl font-bold text-slate-800">{currentPatient.name}</h2>
-                    <div className="flex items-center gap-4 mt-2 text-sm text-slate-500">
-                      {currentPatient.prontuario && <span>Prontuário: <strong className="text-slate-700">{currentPatient.prontuario}</strong></span>}
-                      <span>{currentPatient.info}</span>
-                    </div>
-                  </div>
-                  
-                  <div className="flex items-center gap-3 print:hidden">
-                    <button onClick={handlePrint} className="flex items-center gap-2 px-4 py-2 bg-slate-800 text-white hover:bg-slate-700 rounded-lg text-sm font-medium transition-colors shadow-sm focus:ring-2 focus:ring-offset-2 focus:ring-slate-800">
-                      <IconPrinter /> Imprimir Relatório
-                    </button>
-                    <div className="flex items-center bg-slate-100 p-1 rounded-lg">
-                      <button onClick={() => setActiveTab('painel')} className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${activeTab === 'painel' ? 'bg-white shadow text-[#0040F9]' : 'text-slate-500 hover:text-slate-700'}`}>Painel e Achados</button>
-                      <button onClick={() => setActiveTab('historico')} className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${activeTab === 'historico' ? 'bg-white shadow text-[#0040F9]' : 'text-slate-500 hover:text-slate-700'}`}>Gráficos</button>
-                    </div>
-                  </div>
-                </header>
-
-                <div className="flex-1 overflow-y-auto p-8 print:p-0 print:overflow-visible transition-opacity duration-300">
-                  
-                  {activeTab === 'painel' && currentSnapshot && (
-                    <div className="space-y-8 max-w-6xl mx-auto pb-10 print:pb-0">
-                      
-                      <div className="flex justify-between items-center bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex-wrap gap-4 print:border-none print:shadow-none print:p-0 print:mb-2">
-                        <div className="flex gap-2 flex-wrap">
-                          <h3 className="font-bold text-lg text-slate-800 hidden print:block border-l-4 border-[#0040F9] pl-3">
-                            Coleta de Referência: {currentSnapshot.label || new Date(currentSnapshot.date).toLocaleDateString('pt-BR')}
-                          </h3>
-                          <div className="print:hidden flex gap-2">
-                            {currentPatient.snapshots.map((snap, idx) => (
-                              <button key={idx} onClick={() => setSelectedSnapshotIdx(idx)} className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${selectedSnapshotIdx === idx ? 'bg-[#0040F9] text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
-                                {snap.label || new Date(snap.date).toLocaleDateString('pt-BR')}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                        <button onClick={() => { setModalType('snapshot'); setJsonInput(''); setJsonError(''); setIsModalOpen(true); }} className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-[#0040F9] hover:bg-blue-100 rounded-lg text-sm font-medium transition-colors print:hidden">
-                          <IconPlus /> Adicionar Exame
-                        </button>
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 print:grid-cols-4">
-                        {currentSnapshot.metrics?.map((m, idx) => {
-                          const isAltered = checkMetricStatus(m.value, m.refLow, m.refHigh) === 'altered';
-                          return (
-                            <div key={idx} className={`p-4 rounded-xl border flex flex-col justify-between print-break-inside-avoid transition-all ${isAltered ? 'bg-[#B4650A]/5 border-[#B4650A]/30 print:bg-white print:border-[#B4650A]' : 'bg-white border-slate-200 shadow-sm print:shadow-none hover:shadow-md'}`}>
-                              <div className="flex justify-between items-start mb-2">
-                                <span className="text-sm font-medium text-slate-600 print:text-slate-800">{m.label}</span>
-                                {isAltered && <div className="text-[#B4650A] animate-pulse"><IconAlert /></div>}
-                              </div>
-                              <div className="flex items-baseline gap-1 mt-1">
-                                <span className={`text-2xl font-bold ${isAltered ? 'text-[#B4650A]' : 'text-slate-800'}`}>{m.value}</span>
-                                <span className="text-xs text-slate-500 font-medium">{m.unit}</span>
-                              </div>
-                              <div className="text-[10px] text-slate-400 mt-2 print:text-slate-500">Ref: {m.refLow ?? '-'} ~ {m.refHigh ?? '-'}</div>
-                            </div>
-                          )
-                        })}
-                      </div>
-
-                      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 print:grid-cols-1 print:gap-4">
-                        <div className="lg:col-span-2 space-y-6">
-                          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden print:shadow-none">
-                            <div className="bg-slate-50 px-6 py-4 border-b border-slate-200 print:bg-white print:border-b-2 print:border-slate-800">
-                              <h3 className="font-semibold text-slate-800 flex items-center gap-2"><IconFile /> Achados e Interpretação Clínica</h3>
-                            </div>
-                            <div className="divide-y divide-slate-100 print:divide-slate-300">
-                              {currentSnapshot.findings?.map((f, idx) => (
-                                <div key={idx} className="p-6 print:p-4 print-break-inside-avoid">
-                                  <span className="inline-block px-2.5 py-1 bg-slate-100 text-slate-700 text-xs font-bold rounded-md mb-3 print:bg-transparent print:p-0 print:text-sm print:uppercase">{f.group}</span>
-                                  <div className="space-y-3 text-sm">
-                                    <div><strong className="text-slate-700">Achado:</strong> <span className="text-slate-600">{f.achado}</span></div>
-                                    <div><strong className="text-slate-700">Hipótese:</strong> <span className="text-slate-600">{f.hipotese}</span></div>
-                                    <div className="bg-blue-50 p-3 rounded-lg mt-2 text-[#0040F9] print:bg-white print:border print:border-slate-300 print:text-slate-800"><strong className="block text-xs uppercase mb-1">Sugestão de Conduta</strong>{f.sugestao}</div>
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="space-y-6 print:space-y-4 print:grid print:grid-cols-2 print:gap-4">
-                          <div className="bg-[#00113F] text-white rounded-xl p-6 shadow-md print:bg-white print:border print:border-slate-300 print:text-slate-900 print:shadow-none print-break-inside-avoid relative overflow-hidden">
-                            <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/10 rounded-full blur-2xl -mr-10 -mt-10"></div>
-                            <h3 className="font-semibold mb-4 text-blue-200 border-b border-white/20 pb-2 print:text-slate-800 print:border-slate-300">Síntese do Caso</h3>
-                            <ul className="list-disc pl-4 space-y-2 text-sm text-slate-100 print:text-slate-700 relative z-10">{currentSnapshot.sintese?.map((s, i) => <li key={i}>{s}</li>)}</ul>
-                          </div>
-                          
-                          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 print:shadow-none print-break-inside-avoid relative group">
-                            <div className="flex justify-between items-center mb-3 border-b border-slate-100 pb-2 print:border-slate-300">
-                              <h3 className="font-semibold text-slate-800">Resumo Prontuário</h3>
-                              
-                              <div className="print:hidden relative">
-                                <button onClick={handleCopyProntuario} title="Copiar para o seu sistema" className="p-1.5 text-slate-400 hover:text-[#0040F9] hover:bg-blue-50 rounded-md transition-colors">
-                                  <IconCopy />
-                                </button>
-                                {copyStatus && (
-                                  <div className="absolute -top-8 right-0 bg-green-500 text-white text-[10px] font-bold px-2 py-1 rounded shadow-sm flex items-center gap-1 toast-anim whitespace-nowrap">
-                                    <IconCheck /> Copiado!
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                            <p className="text-sm text-slate-600 leading-relaxed print:text-slate-700 selection:bg-blue-100">{currentSnapshot.prontuario}</p>
-                          </div>
-                          
-                          <div className="bg-amber-50 rounded-xl border border-amber-100 shadow-sm p-6 print:bg-white print:shadow-none print-break-inside-avoid print:col-span-2">
-                            <h3 className="font-semibold text-[#B4650A] mb-3 border-b border-amber-200 pb-2 print:text-slate-800 print:border-slate-300">Terapêutica</h3>
-                            <div className="space-y-4 flex flex-col md:flex-row md:space-y-0 md:gap-8">
-                              {currentSnapshot.terapeutica?.manipuladas?.length > 0 && (
-                                <div className="flex-1">
-                                  <strong className="text-xs uppercase text-slate-500">Fórmulas Manipuladas</strong>
-                                  <ul className="list-disc pl-4 mt-1 text-sm text-slate-700">
-                                    {currentSnapshot.terapeutica.manipuladas.map((item, i) => <li key={i}>{item}</li>)}
-                                  </ul>
-                                </div>
-                              )}
-                              {currentSnapshot.terapeutica?.comercializadas?.length > 0 && (
-                                <div className="flex-1">
-                                  <strong className="text-xs uppercase text-slate-500">Fármacos Comerciais</strong>
-                                  <ul className="list-disc pl-4 mt-1 text-sm text-slate-700">
-                                    {currentSnapshot.terapeutica.comercializadas.map((item, i) => <li key={i}>{item}</li>)}
-                                  </ul>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {activeTab === 'historico' && (
-                    <div className="max-w-6xl mx-auto space-y-6 pb-10 print:pb-0 animate-[fadeIn_0.3s_ease-in-out]">
-                      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 print:border-none print:p-0 print:shadow-none">
-                        <h3 className="text-lg font-bold text-slate-800 mb-2 border-l-4 border-[#0040F9] pl-3">Painel de Tendências (Gráficos)</h3>
-                        <p className="text-sm text-slate-500 mb-6 print:hidden">Acompanhamento longitudinal de marcadores. A faixa azul indica o limite de referência.</p>
-                        {trendData.length > 0 ? (
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 print:grid-cols-2">
-                            {trendData.map((metric, idx) => <SimpleLineChart key={idx} data={metric.data} metricName={metric.label} unit={metric.unit} />)}
-                          </div>
-                        ) : (
-                          <div className="text-center py-12 text-slate-400">Poucos dados para gerar gráficos históricos.</div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </>
-            ) : (
-              <div className="flex-1 flex items-center justify-center bg-slate-50 p-8 text-center print:hidden">
-                <div className="max-w-md">
-                  <div className="w-20 h-20 bg-blue-100 text-[#0040F9] rounded-full flex items-center justify-center mx-auto mb-6 shadow-sm"><IconActivity /></div>
-                  <h2 className="text-2xl font-bold text-slate-800 mb-2">Painel Inteligente IES</h2>
-                  <p className="text-slate-500 mb-8 text-sm leading-relaxed">Selecione um paciente na lista lateral, busque pelo nome, ou cadastre um novo exame para iniciar a avaliação clínica.</p>
-                  <button onClick={() => { setModalType('patient'); setJsonInput(''); setJsonError(''); setIsModalOpen(true); }} className="px-6 py-3 bg-[#0040F9] text-white rounded-lg font-medium shadow-md hover:bg-blue-700 hover:shadow-lg transition-all focus:ring-4 focus:ring-blue-500/30">
-                    + Adicionar Primeiro Paciente
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {isModalOpen && (
-            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 print:hidden transition-opacity">
-              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh] animate-[fadeIn_0.2s_ease-out]">
-                <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-[#00113F] text-white relative overflow-hidden">
-                  <div className="absolute top-0 right-0 w-32 h-32 bg-[#0040F9] rounded-full blur-3xl -mr-10 -mt-10 opacity-50"></div>
-                  <h3 className="text-lg font-bold relative z-10 flex items-center gap-2">
-                    <IconPlus />
-                    {modalType === 'patient' ? 'Importar Novo Paciente' : 'Importar Exame'}
-                  </h3>
-                  <button onClick={() => setIsModalOpen(false)} className="text-white/60 hover:text-white text-xl font-bold relative z-10 transition-colors">&times;</button>
-                </div>
-                <div className="p-6 flex-1 overflow-y-auto bg-slate-50/50">
-                  <p className="text-sm text-slate-600 mb-4 font-medium">Cole abaixo o código JSON gerado pela inteligência artificial.</p>
-                  <textarea value={jsonInput} onChange={(e) => setJsonInput(e.target.value)} className="w-full h-64 p-4 font-mono text-xs text-slate-700 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#0040F9] focus:border-[#0040F9] outline-none shadow-inner transition-shadow" placeholder="{\n  ..." />
-                  {jsonError && <div className="mt-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-xl text-sm flex items-start gap-2 shadow-sm"><div className="mt-0.5"><IconAlert /></div> {jsonError}</div>}
-                </div>
-                <div className="p-5 border-t border-slate-200 bg-white flex justify-end gap-3">
-                  <button onClick={() => setIsModalOpen(false)} className="px-5 py-2.5 text-slate-600 hover:bg-slate-100 hover:text-slate-900 rounded-lg font-medium transition-colors text-sm">Cancelar</button>
-                  <button onClick={handleImportJson} className="px-6 py-2.5 bg-[#0040F9] text-white hover:bg-blue-700 rounded-lg font-medium shadow-md hover:shadow-lg transition-all text-sm flex items-center gap-2">
-                    Importar e Salvar
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      );
     }
+  });
+  return diffs;
+}
 
-    const root = ReactDOM.createRoot(document.getElementById('root'));
-    root.render(<PainelClinico />);
-  </script>
+function showReviewModal(parsed) {
+  const existingPatient = DB.patients[parsed.patientId || currentPatientId];
+  const isNewPatient = !existingPatient;
+  const isNewSnapshot = parsed.date && parsed.metrics && !parsed.snapshots;
+
+  let diffs = [];
+  if (!isNewPatient && isNewSnapshot) {
+    const latestSnap = existingPatient.snapshots[existingPatient.snapshots.length - 1];
+    diffs = compareMetrics(latestSnap.metrics, parsed.metrics);
+  }
+
+  const review = document.getElementById("reviewTable");
+  if (diffs.length === 0) {
+    review.innerHTML = `<div style="text-align:center;color:#667"><em>Sem variações > 30% detectadas. Prossiga com segurança.</em></div>`;
+  } else {
+    let html = `<table style="width:100%;border-collapse:collapse;">
+      <thead style="background:var(--azul-esc);color:var(--branco);position:sticky;top:0;">
+        <tr><th style="padding:6px;text-align:left">Marcador</th><th style="text-align:right">Valor anterior</th><th style="text-align:right">Valor novo</th><th style="text-align:right">Variação</th></tr>
+      </thead>
+      <tbody>`;
+    diffs.forEach(d => {
+      html += `<tr style="border-bottom:1px solid var(--cinza-borda);">
+        <td style="padding:6px"><strong>${d.label}</strong></td>
+        <td style="text-align:right">${d.old} ${d.unit}</td>
+        <td style="text-align:right;background:var(--ambar-bg);font-weight:700"><strong>${d.new} ${d.unit}</strong></td>
+        <td style="text-align:right;color:var(--ambar)"><strong>${d.pctChange}%</strong></td>
+      </tr>`;
+    });
+    html += `</tbody></table>`;
+    review.innerHTML = html;
+  }
+
+  // Limpa checkbox e desabilita botão
+  document.getElementById("confirmReview").checked = false;
+  document.getElementById("btnApproveReview").disabled = true;
+
+  // Armazena dados para salvar após aprovação
+  window._pendingParsed = parsed;
+
+  document.getElementById("modalBg").classList.remove("open");
+  document.getElementById("reviewBg").classList.add("open");
+}
+
+document.getElementById("confirmReview").addEventListener("change", (e) => {
+  document.getElementById("btnApproveReview").disabled = !e.target.checked;
+});
+
+document.getElementById("btnApproveReview").addEventListener("click", () => {
+  const parsed = window._pendingParsed;
+
+  if (parsed.patientId && parsed.snapshots) {
+    DB.patients[parsed.patientId] = parsed;
+    currentPatientId = parsed.patientId;
+  } else if (parsed.date && parsed.metrics) {
+    if (!DB.patients[currentPatientId]) { alert("Nenhum paciente selecionado."); return; }
+    DB.patients[currentPatientId].snapshots.push(parsed);
+  }
+
+  saveDB(DB);
+  populatePatientSelect();
+  document.getElementById("reviewBg").classList.remove("open");
+  render();
+  alert("✅ Dados salvos com sucesso após conferência clínica.");
+});
+
+document.getElementById("btnRejectReview").addEventListener("click", () => {
+  document.getElementById("reviewBg").classList.remove("open");
+  document.getElementById("modalBg").classList.add("open");
+  window._pendingParsed = null;
+});
+
+document.getElementById("btnSaveModal").addEventListener("click", () => {
+  const raw = document.getElementById("jsonInput").value.trim();
+  if (!raw) { alert("Cole um JSON válido antes de salvar."); return; }
+  let parsed;
+  try { parsed = JSON.parse(raw); } catch(e) { alert("JSON inválido: " + e.message); return; }
+
+  if (!parsed.patientId && !parsed.date) {
+    alert("Formato não reconhecido. Use 'Ver schema' para o modelo esperado.");
+    return;
+  }
+
+  // Abre a conferência clínica em vez de salvar direto
+  showReviewModal(parsed);
+});
+
+document.getElementById("btnExport").addEventListener("click", () => {
+  const blob = new Blob([JSON.stringify(DB, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "painel_clinico_backup.json";
+  a.click();
+});
+
+document.getElementById("btnImport").addEventListener("click", () => {
+  document.getElementById("importFile").click();
+});
+
+document.getElementById("importFile").addEventListener("change", (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    let imported;
+    try { imported = JSON.parse(reader.result); }
+    catch (err) { alert("Arquivo inválido: " + err.message); return; }
+    if (!imported || typeof imported.patients !== "object") {
+      alert("Formato não reconhecido. Espera-se um backup exportado por este painel (objeto com chave 'patients').");
+      return;
+    }
+    const incoming = Object.values(imported.patients);
+    const conflicts = incoming.filter(p => DB.patients[p.patientId]);
+    if (conflicts.length > 0) {
+      const nomes = conflicts.map(p => p.name).join(", ");
+      const overwrite = confirm(
+        `${conflicts.length} paciente(s) já existem no painel atual (${nomes}).\n` +
+        `OK = sobrescrever esses pacientes com os dados do backup.\n` +
+        `Cancelar = manter os dados atuais e importar apenas os pacientes novos.`
+      );
+      incoming.forEach(p => {
+        if (DB.patients[p.patientId] && !overwrite) return;
+        DB.patients[p.patientId] = p;
+      });
+    } else {
+      incoming.forEach(p => { DB.patients[p.patientId] = p; });
+    }
+    saveDB(DB);
+    if (!currentPatientId && incoming.length > 0) currentPatientId = incoming[0].patientId;
+    populatePatientSelect();
+    render();
+    alert(`Importação concluída: ${incoming.length} paciente(s) processado(s).`);
+    e.target.value = "";
+  };
+  reader.readAsText(file);
+});
+
+function resizeChartsForPrint() {
+  charts.forEach(c => c.resize());
+}
+
+// Chart.js não redimensiona sozinho quando o CSS de impressão muda o
+// tamanho do container — sem isso, os gráficos ficam sobrepostos no PDF.
+window.addEventListener("beforeprint", resizeChartsForPrint);
+window.addEventListener("afterprint", resizeChartsForPrint);
+window.matchMedia("print").addEventListener("change", () => resizeChartsForPrint());
+
+document.getElementById("btnPrint").addEventListener("click", () => {
+  resizeChartsForPrint();
+  setTimeout(() => window.print(), 50);
+});
+
+populatePatientSelect();
+render();
+</script>
 </body>
 </html>
