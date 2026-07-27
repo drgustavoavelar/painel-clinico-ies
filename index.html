@@ -30,6 +30,7 @@
   header {
     background: linear-gradient(135deg, var(--azul-esc), var(--azul));
     color: var(--branco); padding: 20px 28px;
+    position: sticky; top: 0; z-index: 30;
   }
   header .brand { font-size: 12px; letter-spacing: 1.5px; opacity: .85; text-transform: uppercase; margin-bottom: 4px; }
   header h1 { margin: 0; font-size: 22px; font-weight: 700; }
@@ -105,10 +106,10 @@
   @media print {
     * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
     html, body { margin: 0; padding: 0; }
-    .toolbar, #tabs, .modal-bg, footer, #btnPrint { display: none !important; }
+    .toolbar, #tabs, .modal-bg, footer, #btnPrint, #patientSwitchToast { display: none !important; }
     #appShell { display: block !important; }
     header {
-      padding: 12px 18px; margin: 0; position: relative;
+      padding: 12px 18px; margin: 0; position: static !important;
       page-break-after: avoid;
     }
     header h1 { font-size: 16px; margin: 2px 0; }
@@ -382,8 +383,11 @@ function subscribeToFirestore(uid) {
     snapshot.forEach(doc => { patients[doc.id] = doc.data(); });
     DB.patients = patients;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(DB));
-    if (!currentPatientId || !patients[currentPatientId]) {
-      currentPatientId = Object.keys(patients)[0];
+    // Nunca seleciona um paciente sozinho — o médico escolhe explicitamente.
+    // Isso evita o risco de abrir o painel e continuar analisando o
+    // paciente errado sem perceber.
+    if (currentPatientId && !patients[currentPatientId]) {
+      currentPatientId = null;
     }
     setSyncStatus("sincronizado");
     populatePatientSelect();
@@ -429,6 +433,12 @@ function populatePatientSelect() {
   const sel = document.getElementById("patientSelect");
   const term = (document.getElementById("patientSearch").value || "").trim().toLowerCase();
   sel.innerHTML = "";
+
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = "— Selecione um paciente —";
+  sel.appendChild(placeholder);
+
   const matches = Object.values(DB.patients)
     .filter(p => !term || p.name.toLowerCase().includes(term))
     .sort((a,b) => a.name.localeCompare(b.name));
@@ -437,19 +447,77 @@ function populatePatientSelect() {
     opt.value = p.patientId; opt.textContent = p.name;
     sel.appendChild(opt);
   });
-  // mantém o paciente atual selecionado se ainda estiver na lista filtrada; senão, cai para o primeiro resultado
-  if (matches.some(p => p.patientId === currentPatientId)) {
+
+  // SEGURANÇA: nunca trocar de paciente sozinho. Se o paciente atual não
+  // está mais na lista filtrada (ex.: uma busca digitada), o painel volta
+  // ao estado "nenhum paciente selecionado" em vez de pular silenciosamente
+  // para outro nome — isso já causou um incidente real de troca de paciente
+  // sem o médico perceber.
+  if (currentPatientId && matches.some(p => p.patientId === currentPatientId)) {
     sel.value = currentPatientId;
-  } else if (matches.length > 0) {
-    currentPatientId = matches[0].patientId;
-    sel.value = currentPatientId;
+  } else {
+    if (currentPatientId) currentPatientId = null;
+    sel.value = "";
   }
+}
+
+let lastRenderedPatientId = null;
+
+function showPatientSwitchNotice(name) {
+  const existing = document.getElementById("patientSwitchToast");
+  if (existing) existing.remove();
+  const toast = document.createElement("div");
+  toast.id = "patientSwitchToast";
+  toast.textContent = `👤 Agora visualizando: ${name}`;
+  toast.style.cssText = `
+    position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
+    background: var(--azul-esc); color: var(--branco); font-weight: 700;
+    padding: 12px 24px; border-radius: 10px; box-shadow: 0 4px 16px rgba(0,0,0,.3);
+    z-index: 300; font-size: 14px; transition: opacity .4s ease;
+  `;
+  document.body.appendChild(toast);
+  setTimeout(() => { toast.style.opacity = "0"; }, 2600);
+  setTimeout(() => { toast.remove(); }, 3200);
+}
+
+function clearPatientView() {
+  document.title = "Painel Clínico IES";
+  document.getElementById("hdrName").textContent = "Nenhum paciente selecionado";
+  document.getElementById("hdrSub").textContent = "Escolha um paciente na lista acima antes de visualizar ou editar dados.";
+  document.getElementById("patientMeta").innerHTML = "";
+  document.getElementById("snapList").innerHTML = "";
+  document.getElementById("snapCount").textContent = "";
+  document.getElementById("metricGrid").innerHTML = `<div class="empty">Selecione um paciente para ver os marcadores.</div>`;
+  document.getElementById("chartGrid").innerHTML = `<div class="empty">Selecione um paciente para ver as tendências.</div>`;
+  document.getElementById("findingsList").innerHTML = `<div class="empty">Selecione um paciente para ver os achados.</div>`;
+  document.getElementById("sinteseList").innerHTML = "";
+  document.getElementById("prontuarioText").textContent = "";
+  document.getElementById("pacienteText").innerHTML = "";
+  document.getElementById("manipuladasList").innerHTML = "";
+  document.getElementById("comercializadasList").innerHTML = "";
+  charts.forEach(c => c.destroy());
+  charts = [];
+  lastRenderedPatientId = null;
 }
 
 function render() {
   const p = DB.patients[currentPatientId];
-  if (!p || !p.snapshots || p.snapshots.length === 0) {
-    document.getElementById("hdrName").textContent = p ? p.name : "Sem paciente";
+
+  // SEGURANÇA: nunca renderiza dados de paciente sem uma seleção explícita e
+  // válida — evita continuar exibindo (ou editando) o paciente errado.
+  if (!currentPatientId || !p) {
+    clearPatientView();
+    return;
+  }
+
+  if (currentPatientId !== lastRenderedPatientId) {
+    showPatientSwitchNotice(p.name);
+    lastRenderedPatientId = currentPatientId;
+  }
+  document.title = p.name + " — Painel Clínico IES";
+
+  if (!p.snapshots || p.snapshots.length === 0) {
+    document.getElementById("hdrName").textContent = p.name;
     document.getElementById("hdrSub").textContent = "Nenhum snapshot cadastrado ainda.";
     return;
   }
@@ -555,7 +623,7 @@ document.getElementById("tabs").addEventListener("click", (e) => {
 });
 
 document.getElementById("patientSelect").addEventListener("change", (e) => {
-  currentPatientId = e.target.value;
+  currentPatientId = e.target.value || null;
   render();
 });
 
