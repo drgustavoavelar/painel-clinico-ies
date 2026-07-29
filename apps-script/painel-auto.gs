@@ -249,9 +249,12 @@ function markRowsStatus_(sheet, statusCol, rowNumbers, statusText) {
   });
 }
 
-// ── Anexos diretos na pasta (fora do formulário, seguindo o POP) ─────────────
-// Padrão do POP: "Exames_Nome_Sobrenome_Mes_Ano.pdf" (sem acentos). Também
-// aceita prefixos legados (resultado/laudo) que ainda aparecem na pasta.
+// ── Anexos diretos na pasta (fora do formulário) ──────────────────────────────
+// Dois padrões de nome de arquivo são aceitos (ver extractPatientFromFilename_
+// mais abaixo, que tenta os dois nessa ordem):
+//   1. POP: "Exames_Nome_Sobrenome_Mes_Ano.pdf" (sem acentos)
+//   2. Convenção antiga: "AAAA-MM-DD - Tipo do exame - Nome Completo.pdf"
+// Qualquer outro formato é ignorado, nunca adivinhado.
 var PREFIXOS_ARQUIVO_CONHECIDOS_ = ['exames', 'exame', 'resultado', 'resultados', 'laudo', 'laudos'];
 var MESES_PT_ = ['janeiro', 'fevereiro', 'marco', 'abril', 'maio', 'junho', 'julho',
                  'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
@@ -288,6 +291,30 @@ function extractPatientFromPOPFilename_(filename) {
   return tokens.join(' ');
 }
 
+// Segundo padrão aceito: "AAAA-MM-DD - Tipo do exame - Nome Completo.pdf"
+// (convenção mais antiga, ainda usada para anexos soltos direto na pasta).
+// Só reconhece se a DATA no início estiver presente — essa âncora é o que
+// diferencia um arquivo assim de um upload do Google Forms, cujo nome vem
+// como "<algo> - <Nome de quem enviou>.pdf" SEM data no início. Sem essa
+// exigência, o último segmento poderia ser o nome de uma funcionária (ex.:
+// "ANTONIO1_merged - Vitória Thalita Monteiro Medeiros.pdf") em vez do
+// paciente — exatamente o erro que já causou confusão de pacientes antes.
+function extractPatientFromDatePrefixedFilename_(filename) {
+  var base = filename.replace(/\.pdf$/i, '').trim();
+  base = base.replace(/\s*\(\d+\)$/, ''); // remove sufixo de duplicata do Drive
+  var m = base.match(/^\d{4}-\d{2}-\d{2}\s*-\s*(.+)$/);
+  if (!m) return null;
+  var parts = m[1].split(' - ').map(function(s) { return s.trim(); }).filter(Boolean);
+  if (parts.length === 0) return null;
+  return parts[parts.length - 1];
+}
+
+// Tenta os dois padrões reconhecidos, nessa ordem. Retorna null (arquivo
+// ignorado, nunca adivinhado) se nenhum dos dois casar.
+function extractPatientFromFilename_(filename) {
+  return extractPatientFromPOPFilename_(filename) || extractPatientFromDatePrefixedFilename_(filename);
+}
+
 // Todos os IDs de arquivo já referenciados por alguma linha da planilha —
 // usado para não reprocessar pela varredura direta um arquivo que já veio
 // (ou vai vir) pelo caminho do formulário.
@@ -313,9 +340,18 @@ function markDirectFileStatus_(fileId, statusText) {
   PropertiesService.getScriptProperties().setProperty('DIRECT_' + fileId, statusText);
 }
 
+// Evita reenviar o aviso de "nome fora do padrão" a cada 5 minutos para o
+// mesmo arquivo, para sempre — notifica uma vez, o médico decide quando agir.
+function isIgnoredAlreadyNotified_(fileId) {
+  return PropertiesService.getScriptProperties().getProperty('IGNORED_' + fileId) !== null;
+}
+function markIgnoredNotified_(fileId) {
+  PropertiesService.getScriptProperties().setProperty('IGNORED_' + fileId, new Date().toISOString());
+}
+
 // Varre a pasta "Anexos (File responses)" e agrupa por paciente os PDFs que:
 // (a) não vieram pelo formulário, (b) ainda não foram processados, e
-// (c) têm nome de arquivo reconhecível pelo POP.
+// (c) têm nome de arquivo reconhecível (POP ou "Data - Tipo - Nome.pdf").
 function collectPendingDirectDropGroups_(referencedIds) {
   var folder = DriveApp.getFolderById(CONFIG.ANEXOS_FOLDER_ID);
   var fileIterator = folder.getFilesByType(MimeType.PDF);
@@ -328,9 +364,12 @@ function collectPendingDirectDropGroups_(referencedIds) {
     if (referencedIds[id]) continue;
     if (isDirectFileProcessed_(id)) continue;
 
-    var patientName = extractPatientFromPOPFilename_(file.getName());
+    var patientName = extractPatientFromFilename_(file.getName());
     if (!patientName) {
-      ignored.push(file.getName());
+      if (!isIgnoredAlreadyNotified_(id)) {
+        ignored.push(file.getName());
+        markIgnoredNotified_(id);
+      }
       continue;
     }
     var key = normalizePatientName_(patientName);
