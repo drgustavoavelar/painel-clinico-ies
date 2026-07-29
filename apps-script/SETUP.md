@@ -58,18 +58,82 @@ listados no e-mail de notificação para a equipe corrigir o nome.
 
 1. No menu lateral, clique no ícone de engrenagem ⚙️ → **"Configurações do projeto"**
 2. Role até **"Propriedades do script"** → clique em **"Adicionar propriedade"**
-3. Adicione as duas propriedades:
+3. Adicione as propriedades abaixo (as duas primeiras já existiam; as duas
+   últimas são novas, para o painel atualizar sozinho — ver Passo 3):
 
 | Nome da propriedade | Valor |
 |---|---|
 | `ANTHROPIC_API_KEY` | Cole sua chave `sk-ant-api03-...` |
 | `NOTION_API_KEY` | Cole o token `secret_ntn_...` da integração "Painel IES" |
+| `GOOGLE_SA_CLIENT_EMAIL` | Do arquivo JSON da Service Account (Passo 3) |
+| `GOOGLE_SA_PRIVATE_KEY` | Do arquivo JSON da Service Account (Passo 3) |
 
 4. Clique em **"Salvar propriedades do script"**
 
 ---
 
-## Passo 3 — Conferir a planilha de respostas
+## Passo 3 — Conectar o script ao painel (Firestore), sem colar JSON à mão
+
+Isso é o que faz o painel se atualizar sozinho — sem essa etapa, o script
+ainda funciona, mas você precisa copiar o JSON do e-mail/Drive e colar
+manualmente no painel a cada exame (como fizemos antes).
+
+### 3.1 — Criar a credencial no Google Cloud (uma vez só)
+
+1. Acesse [console.cloud.google.com](https://console.cloud.google.com) **logado
+   como `drgustavo@elodesaude.com`**
+2. No topo, confirme que o projeto selecionado é **`instituto-elo-de-saude`**
+   (mesmo projeto do Firebase que já usamos)
+3. Menu ☰ → **"IAM e administrador"** → **"Contas de serviço"**
+4. **"+ Criar conta de serviço"**
+   - Nome: `apps-script-painel` (ou qualquer nome)
+   - Clique **"Criar e continuar"**
+   - Papel: busque e selecione **"Usuário do Cloud Datastore"** (*Cloud
+     Datastore User* — dá acesso de leitura/escrita ao Firestore, nada além disso)
+   - **"Concluir"**
+5. Na lista de contas de serviço, clique na que você acabou de criar
+6. Aba **"Chaves"** → **"Adicionar chave"** → **"Criar nova chave"** → tipo
+   **JSON** → **"Criar"** — isso baixa um arquivo `.json` para o seu Mac
+7. **Abra esse arquivo** (TextEdit ou VS Code). Ele tem este formato:
+   ```json
+   {
+     "client_email": "apps-script-painel@instituto-elo-de-saude.iam.gserviceaccount.com",
+     "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvQI...\n-----END PRIVATE KEY-----\n",
+     ...
+   }
+   ```
+   - Copie o valor de `client_email` → cole na propriedade `GOOGLE_SA_CLIENT_EMAIL` (Passo 2)
+   - Copie o valor de `private_key` **inteiro, incluindo `-----BEGIN...` e `-----END...`** → cole na propriedade `GOOGLE_SA_PRIVATE_KEY` (Passo 2)
+
+> ⚠️ **Esse arquivo `.json` é uma credencial sensível** — equivale a uma senha
+> com acesso de escrita ao banco de dados dos pacientes. Não envie por
+> WhatsApp/e-mail, não suba pro GitHub. Depois de colar os dois valores nas
+> Propriedades do Script, pode apagar o arquivo baixado do Mac.
+
+### 3.2 — Descobrir o seu UID do Firebase (uma vez só)
+
+O Firestore organiza os dados por usuário logado no painel — o script precisa
+saber qual é o "seu" ID lá dentro.
+
+1. Abra o painel: [drgustavoavelar.github.io/painel-clinico-ies](https://drgustavoavelar.github.io/painel-clinico-ies/)
+2. Entre com o Google normalmente
+3. Aperte **F12** (ou `Cmd+Option+I` no Mac) para abrir as Ferramentas do
+   Desenvolvedor → aba **"Console"**
+4. Cole isto e aperte Enter:
+   ```javascript
+   firebase.auth().currentUser.uid
+   ```
+5. Vai aparecer um texto tipo `"Ab12Cd34Ef56..."` — copie (sem as aspas)
+6. Volte no Apps Script → `Código.gs` → ache a linha:
+   ```javascript
+   FIRESTORE_UID: 'COLE_AQUI_O_UID_DO_FIREBASE_AUTH',
+   ```
+   e substitua pelo UID copiado
+7. **💾 Salvar**
+
+---
+
+## Passo 4 — Conferir a planilha de respostas
 
 O script já vem configurado para ler a planilha do formulário "Acompanhamento
 Dr. Gustavo":
@@ -96,7 +160,7 @@ formulário):
 
 ---
 
-## Passo 4 — Instalar o trigger (1 vez)
+## Passo 5 — Instalar o trigger (1 vez)
 
 1. No editor, no menu suspenso de funções (topo, ao lado do ▶️), selecione **`instalarTrigger`**
 2. Clique em **▶️ Executar**
@@ -113,7 +177,7 @@ formulário):
 
 ---
 
-## Passo 5 — Teste
+## Passo 6 — Teste
 
 1. Preencha o formulário "Acompanhamento Dr. Gustavo" com um paciente de teste,
    `Tipo de pedido = Exames`, e anexe um PDF de exame
@@ -123,7 +187,10 @@ formulário):
    - Log no editor: deve mostrar o processamento
    - Pasta `IES · Exames Processados` no Drive: JSON + resumo `.txt` criados
    - Notion: paciente criado/atualizado
-   - E-mail em `dr.gustavoavelar@gmail.com` com o resumo
+   - **Painel** (recarregue com Ctrl+Shift+R): o paciente de teste já aparece
+     sozinho na lista, sem você ter colado nada
+   - E-mail em `dr.gustavoavelar@gmail.com` com o resumo — a linha do
+     paciente deve trazer "✅ Painel: novo paciente criado automaticamente"
    - Na planilha de respostas: a coluna `Analisado pela IA` da linha de teste
      preenchida com a data/hora
 
@@ -202,6 +269,10 @@ Para WhatsApp, seria necessário integrar o Twilio ou similar (adicionar uma cha
 | E-mail não chega | MailApp sem permissão | Rode `instalarTrigger` de novo e autorize |
 | Arquivo anexado direto na pasta nunca é processado | Nome fora do padrão do POP (falta mês/ano, ou não é `Exames_Nome_Sobrenome_Mes_Ano.pdf`) | Confira a lista de "arquivos ignorados" no e-mail; renomeie seguindo o POP |
 | Quero forçar reprocessar um anexo direto já processado | O controle fica salvo internamente (Propriedades do Script, chave `DIRECT_<idDoArquivo>`) | Apps Script → ⚙️ Configurações do projeto → Propriedades do script → localize a chave `DIRECT_...` do arquivo e apague-a |
+| E-mail mostra `⚠️ Firestore não configurado (FIRESTORE_UID ausente)` | Passo 3.2 não foi feito | Pegue o UID no console do painel e cole em `CONFIG.FIRESTORE_UID` |
+| E-mail mostra `⚠️ Erro ao atualizar o painel: Falha ao autenticar no Firestore` | `GOOGLE_SA_CLIENT_EMAIL`/`GOOGLE_SA_PRIVATE_KEY` errados ou ausentes | Revise o Passo 3.1 — confira se copiou os dois valores certos do arquivo `.json` da Service Account |
+| E-mail mostra `Firestore erro (403)` | A Service Account não tem permissão no Firestore | No Google Cloud Console, confirme que o papel **"Usuário do Cloud Datastore"** foi mesmo atribuído a ela (Passo 3.1) |
+| Painel não atualiza mas Notion/Drive funcionam normalmente | Erro isolado no Firestore (não trava o resto) | O JSON continua salvo no Drive como reserva — copie e cole manualmente enquanto investiga a causa acima |
 
 ### Ver logs de execução
 
