@@ -53,6 +53,11 @@ var CONFIG = {
   EMAIL_NOTIF:         'dr.gustavoavelar@gmail.com',
   MODELO_CLAUDE:       'claude-haiku-4-5-20251001',
   MAX_PDF_BYTES:       8 * 1024 * 1024,   // 8 MB — limite seguro para UrlFetchApp
+
+  // ── Firestore (alimenta o painel automaticamente, sem colar JSON) ──────────
+  FIRESTORE_PROJECT_ID: 'instituto-elo-de-saude',
+  FIRESTORE_APP_ID:     'painel-clinico-ies-web', // mesmo appId usado no painel (index.html)
+  FIRESTORE_UID:        'COLE_AQUI_O_UID_DO_FIREBASE_AUTH', // ver SETUP.md — "Passo 6"
 };
 
 // ── System prompt clínico (espelho do painel.py) ──────────────────────────────
@@ -567,6 +572,151 @@ function extractJson_(text) {
   }
 }
 
+// ── Firestore — alimenta o painel automaticamente, sem colar JSON ────────────
+// Usa uma Service Account do Google Cloud (credencial "admin"), que
+// ignora as regras de segurança do Firestore de propósito — o script roda
+// só sob a conta do médico, então é a ponte confiável equivalente ao que o
+// próprio painel faz quando ele está logado. Ver SETUP.md para como gerar
+// as credenciais (GOOGLE_SA_CLIENT_EMAIL / GOOGLE_SA_PRIVATE_KEY).
+
+function base64url_(strOrBytes) {
+  var s = Utilities.base64EncodeWebSafe(strOrBytes);
+  return s.replace(/=+$/, '');
+}
+
+// Troca a chave privada da Service Account por um token de acesso OAuth2
+// (fluxo JWT-bearer), sem depender de bibliotecas externas.
+function getFirestoreAccessToken_() {
+  var clientEmail = getApiKey_('GOOGLE_SA_CLIENT_EMAIL');
+  var privateKey = getApiKey_('GOOGLE_SA_PRIVATE_KEY').replace(/\\n/g, '\n');
+
+  var header = { alg: 'RS256', typ: 'JWT' };
+  var now = Math.floor(new Date().getTime() / 1000);
+  var claimSet = {
+    iss: clientEmail,
+    scope: 'https://www.googleapis.com/auth/datastore',
+    aud: 'https://oauth2.googleapis.com/token',
+    exp: now + 3600,
+    iat: now
+  };
+
+  var toSign = base64url_(JSON.stringify(header)) + '.' + base64url_(JSON.stringify(claimSet));
+  var signatureBytes = Utilities.computeRsaSha256Signature(toSign, privateKey);
+  var jwt = toSign + '.' + base64url_(signatureBytes);
+
+  var resp = UrlFetchApp.fetch('https://oauth2.googleapis.com/token', {
+    method: 'post',
+    payload: {
+      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+      assertion: jwt
+    },
+    muteHttpExceptions: true
+  });
+  var body = JSON.parse(resp.getContentText());
+  if (!body.access_token) {
+    throw new Error('Falha ao autenticar no Firestore: ' + resp.getContentText().substring(0, 300));
+  }
+  return body.access_token;
+}
+
+// Conversores entre objeto JS puro e o formato de campos tipados do Firestore.
+function jsToFirestoreValue_(v) {
+  if (v === null || v === undefined) return { nullValue: null };
+  if (typeof v === 'boolean') return { booleanValue: v };
+  if (typeof v === 'number') return Number.isInteger(v) ? { integerValue: String(v) } : { doubleValue: v };
+  if (typeof v === 'string') return { stringValue: v };
+  if (Array.isArray(v)) return { arrayValue: { values: v.map(jsToFirestoreValue_) } };
+  if (typeof v === 'object') {
+    var fields = {};
+    Object.keys(v).forEach(function(k) { fields[k] = jsToFirestoreValue_(v[k]); });
+    return { mapValue: { fields: fields } };
+  }
+  return { stringValue: String(v) };
+}
+function firestoreValueToJs_(v) {
+  if (!v || v.nullValue !== undefined) return null;
+  if (v.booleanValue !== undefined) return v.booleanValue;
+  if (v.integerValue !== undefined) return parseInt(v.integerValue, 10);
+  if (v.doubleValue !== undefined) return v.doubleValue;
+  if (v.stringValue !== undefined) return v.stringValue;
+  if (v.arrayValue !== undefined) return (v.arrayValue.values || []).map(firestoreValueToJs_);
+  if (v.mapValue !== undefined) {
+    var obj = {};
+    var f = v.mapValue.fields || {};
+    Object.keys(f).forEach(function(k) { obj[k] = firestoreValueToJs_(f[k]); });
+    return obj;
+  }
+  return null;
+}
+
+function firestoreDocUrl_(patientId) {
+  var docPath = 'artifacts/' + CONFIG.FIRESTORE_APP_ID + '/users/' + CONFIG.FIRESTORE_UID + '/patients/' + patientId;
+  return 'https://firestore.googleapis.com/v1/projects/' + CONFIG.FIRESTORE_PROJECT_ID + '/databases/(default)/documents/' + docPath;
+}
+
+function firestoreGetPatient_(patientId, token) {
+  var resp = UrlFetchApp.fetch(firestoreDocUrl_(patientId), {
+    headers: { Authorization: 'Bearer ' + token },
+    muteHttpExceptions: true
+  });
+  if (resp.getResponseCode() !== 200) return null;
+  var doc = JSON.parse(resp.getContentText());
+  var obj = {};
+  var f = doc.fields || {};
+  Object.keys(f).forEach(function(k) { obj[k] = firestoreValueToJs_(f[k]); });
+  return obj;
+}
+
+// Salva o paciente no Firestore, mesclando com snapshots já existentes (o
+// Claude só gera o(s) snapshot(s) desta rodada — sem mesclar, um paciente já
+// existente perderia o histórico anterior a cada nova análise).
+function saveToFirestore_(patientData) {
+  if (!CONFIG.FIRESTORE_UID || CONFIG.FIRESTORE_UID.indexOf('COLE_AQUI') === 0) {
+    return '⚠️ Firestore não configurado (FIRESTORE_UID ausente) — painel não foi atualizado automaticamente';
+  }
+
+  var token = getFirestoreAccessToken_();
+  var existing = firestoreGetPatient_(patientData.patientId, token);
+
+  var merged;
+  if (existing) {
+    var snapMap = {};
+    (existing.snapshots || []).forEach(function(s) { snapMap[s.date] = s; });
+    (patientData.snapshots || []).forEach(function(s) { snapMap[s.date] = s; }); // novo substitui/soma
+    var mergedSnapshots = Object.keys(snapMap).sort().map(function(d) { return snapMap[d]; });
+    merged = {
+      patientId: patientData.patientId,
+      name: patientData.name || existing.name,
+      prontuario: patientData.prontuario || existing.prontuario || '',
+      info: patientData.info || existing.info || '',
+      snapshots: mergedSnapshots
+    };
+  } else {
+    merged = patientData;
+  }
+
+  var fields = {};
+  Object.keys(merged).forEach(function(k) { fields[k] = jsToFirestoreValue_(merged[k]); });
+
+  var resp = UrlFetchApp.fetch(firestoreDocUrl_(merged.patientId), {
+    method: 'patch',
+    contentType: 'application/json',
+    headers: { Authorization: 'Bearer ' + token },
+    payload: JSON.stringify({ fields: fields }),
+    muteHttpExceptions: true
+  });
+  if (resp.getResponseCode() !== 200) {
+    throw new Error('Firestore erro (' + resp.getResponseCode() + '): ' + resp.getContentText().substring(0, 300));
+  }
+
+  return existing
+    ? '✅ Painel atualizado automaticamente (' + mergedSnapshotsCount_(merged) + ' snapshot(s) no total)'
+    : '✅ Painel: novo paciente criado automaticamente';
+}
+function mergedSnapshotsCount_(merged) {
+  return (merged.snapshots || []).length;
+}
+
 // ── Processamento de um grupo de arquivos (todos do mesmo paciente) ───────────
 function processPatientGroup_(displayName, files, outputFolder) {
   var fileNames = files.map(function(f) { return f.getName(); });
@@ -603,6 +753,16 @@ function processPatientGroup_(displayName, files, outputFolder) {
     Logger.log(notionResult);
   }
 
+  // Atualizar o painel automaticamente via Firestore — sem colar JSON à mão
+  var painelResult = '(Firestore ignorado)';
+  try {
+    painelResult = saveToFirestore_(patientData);
+    Logger.log(painelResult);
+  } catch (e) {
+    painelResult = '⚠️ Erro ao atualizar o painel: ' + e.message;
+    Logger.log(painelResult);
+  }
+
   // Os PDFs originais NÃO são movidos — pertencem ao registro do formulário
   // (pasta "Anexos (File responses)") e não devem ser reorganizados aqui.
 
@@ -611,6 +771,7 @@ function processPatientGroup_(displayName, files, outputFolder) {
     fileCount:    files.length,
     fileNames:    fileNames,
     notionResult: notionResult,
+    painelResult: painelResult,
     jsonUrl:      jsonFile.getUrl(),
     result:       result
   };
@@ -684,7 +845,8 @@ function processarExames() {
       body += '─────────────────────────────\n';
       body += 'Paciente: ' + p.patient + '\n';
       body += 'Arquivos analisados juntos (' + p.fileCount + '): ' + p.fileNames.join(', ') + '\n';
-      body += p.notionResult + '\n\n';
+      body += p.notionResult + '\n';
+      body += p.painelResult + '\n\n';
 
       // Trecho do resumo
       var resumoMatch = p.result.match(/### Alterações encontradas([\s\S]*?)(?=```json|$)/);
@@ -693,7 +855,8 @@ function processarExames() {
       body += '📂 JSON salvo no Drive:\n' + p.jsonUrl + '\n\n';
     }
     body += '─────────────────────────────\n';
-    body += '🖥️  Cole o JSON no painel:\nhttps://drgustavoavelar.github.io/painel-clinico-ies/\n\n';
+    body += '🖥️  Painel (já atualizado automaticamente): https://drgustavoavelar.github.io/painel-clinico-ies/\n';
+    body += '   (se aparecer "⚠️ Erro ao atualizar o painel" em algum paciente acima, copie o JSON do Drive e cole manualmente como reserva)\n\n';
     body += '📁 Todos os arquivos: https://drive.google.com/drive/folders/' + getOrCreateFolder_(CONFIG.PASTA_PROCESSADOS).getId() + '\n';
   }
 
