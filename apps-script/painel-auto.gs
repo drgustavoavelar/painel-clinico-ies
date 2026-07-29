@@ -913,3 +913,39 @@ function testeManual() {
   Logger.log('Iniciando teste — lendo respostas pendentes da planilha do Google Form.');
   processarExames();
 }
+
+// ── Reenvio manual: empurra JSONs já gerados para o Firestore ────────────────
+// Uso único: para pacientes que foram processados ANTES do Firestore estar
+// configurado (ficaram marcados como "já processados", então o trigger normal
+// não os pega de novo). Lê os arquivos .json já salvos em
+// "IES · Exames Processados" e chama saveToFirestore_ direto — sem gastar
+// Claude de novo. Rode manualmente uma vez; depois pode ignorar/apagar.
+function reenviarProcessadosParaFirestore() {
+  var folder = getOrCreateFolder_(CONFIG.PASTA_PROCESSADOS);
+  var allFiles = folder.getFiles();
+  var jsonFiles = [];
+  while (allFiles.hasNext()) {
+    var f = allFiles.next();
+    if (/\.json$/i.test(f.getName())) jsonFiles.push(f);
+  }
+
+  if (jsonFiles.length === 0) {
+    Logger.log('Nenhum arquivo .json encontrado em "' + CONFIG.PASTA_PROCESSADOS + '".');
+    return;
+  }
+
+  Logger.log('Encontrados ' + jsonFiles.length + ' arquivo(s) JSON. Reenviando ao Firestore...');
+  var ok = 0, falhou = 0;
+  jsonFiles.forEach(function(f) {
+    try {
+      var patientData = JSON.parse(f.getBlob().getDataAsString());
+      var resultado = saveToFirestore_(patientData);
+      Logger.log(f.getName() + ' → ' + resultado);
+      ok++;
+    } catch (e) {
+      Logger.log('❌ ' + f.getName() + ' → erro: ' + e.message);
+      falhou++;
+    }
+  });
+  Logger.log('Concluído: ' + ok + ' enviado(s), ' + falhou + ' com erro.');
+}
