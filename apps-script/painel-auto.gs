@@ -161,6 +161,22 @@ function normalizePatientName_(name) {
     .trim();
 }
 
+// Gera um patientId est\u00e1vel a partir do nome (usado para salvar no Firestore).
+// Nunca confiar no "patientId" que o Claude gera no JSON \u2014 o mesmo nome pode
+// vir formatado de jeitos diferentes entre exames (mai\u00fasculas, acentos,
+// cabe\u00e7alho do laudo em CAPS etc.), e como o Claude monta o slug livremente
+// a cada chamada, isso j\u00e1 criou pacientes duplicados no painel. Gerando o
+// patientId sempre pelo nosso pr\u00f3prio c\u00f3digo, a partir do mesmo texto usado
+// para agrupar (displayName), a mesma pessoa sempre cai no mesmo documento.
+function slugifyPatientId_(name) {
+  return name
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9\s-]/g, '')
+    .trim()
+    .replace(/\s+/g, '-');
+}
+
 function getResponseSheet_() {
   var ss = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
   var sheets = ss.getSheets();
@@ -723,6 +739,127 @@ function mergedSnapshotsCount_(merged) {
   return (merged.snapshots || []).length;
 }
 
+function firestorePatientsCollectionUrl_() {
+  return 'https://firestore.googleapis.com/v1/projects/' + CONFIG.FIRESTORE_PROJECT_ID +
+    '/databases/(default)/documents/artifacts/' + CONFIG.FIRESTORE_APP_ID +
+    '/users/' + CONFIG.FIRESTORE_UID + '/patients';
+}
+
+// Lista todos os pacientes salvos no Firestore (com paginação).
+function firestoreListPatients_(token) {
+  var patients = [];
+  var pageToken = null;
+  do {
+    var url = firestorePatientsCollectionUrl_() + '?pageSize=200' + (pageToken ? '&pageToken=' + encodeURIComponent(pageToken) : '');
+    var resp = UrlFetchApp.fetch(url, { headers: { Authorization: 'Bearer ' + token }, muteHttpExceptions: true });
+    if (resp.getResponseCode() !== 200) {
+      throw new Error('Erro ao listar pacientes do Firestore (' + resp.getResponseCode() + '): ' + resp.getContentText().substring(0, 300));
+    }
+    var body = JSON.parse(resp.getContentText());
+    (body.documents || []).forEach(function(doc) {
+      var obj = {};
+      var f = doc.fields || {};
+      Object.keys(f).forEach(function(k) { obj[k] = firestoreValueToJs_(f[k]); });
+      patients.push(obj);
+    });
+    pageToken = body.nextPageToken || null;
+  } while (pageToken);
+  return patients;
+}
+
+function firestoreDeletePatient_(patientId, token) {
+  var resp = UrlFetchApp.fetch(firestoreDocUrl_(patientId), {
+    method: 'delete',
+    headers: { Authorization: 'Bearer ' + token },
+    muteHttpExceptions: true
+  });
+  var code = resp.getResponseCode();
+  if (code !== 200 && code !== 204) {
+    throw new Error('Erro ao apagar paciente duplicado (' + code + '): ' + resp.getContentText().substring(0, 200));
+  }
+}
+
+// ── Uso único: mescla pacientes duplicados no Firestore ───────────────────────
+// Duplicados aconteciam porque o patientId antigo era gerado pelo Claude
+// (não determinístico entre chamadas). Isso já foi corrigido em
+// processPatientGroup_ (patientId agora vem de slugifyPatientId_), mas os
+// duplicados que já existem no Firestore precisam ser mesclados manualmente
+// uma vez. Agrupa por nome normalizado, junta os snapshots de todos os
+// registros do mesmo paciente, salva num único documento com o patientId
+// determinístico, e apaga os demais.
+function mesclarPacientesDuplicados() {
+  var token = getFirestoreAccessToken_();
+  var patients = firestoreListPatients_(token);
+  Logger.log('Total de pacientes no Firestore: ' + patients.length);
+
+  var groups = {};
+  patients.forEach(function(p) {
+    var key = normalizePatientName_(p.name || '');
+    if (!key) return;
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(p);
+  });
+
+  var duplicateKeys = Object.keys(groups).filter(function(k) { return groups[k].length > 1; });
+  if (duplicateKeys.length === 0) {
+    Logger.log('Nenhum paciente duplicado encontrado.');
+    return;
+  }
+
+  Logger.log('Encontrados ' + duplicateKeys.length + ' paciente(s) com registros duplicados.');
+
+  duplicateKeys.forEach(function(key) {
+    var dupes = groups[key];
+    var canonicalName = dupes.sort(function(a, b) { return (b.name || '').length - (a.name || '').length; })[0].name;
+    var canonicalId = slugifyPatientId_(canonicalName);
+
+    Logger.log('Mesclando ' + dupes.length + ' registro(s) de "' + canonicalName + '" em "' + canonicalId + '"...');
+
+    var snapMap = {};
+    dupes.forEach(function(p) {
+      (p.snapshots || []).forEach(function(s) { snapMap[s.date] = s; });
+    });
+    var mergedSnapshots = Object.keys(snapMap).sort().map(function(d) { return snapMap[d]; });
+
+    var merged = {
+      patientId: canonicalId,
+      name: canonicalName,
+      prontuario: dupes.map(function(p) { return p.prontuario; }).filter(Boolean)[0] || '',
+      info: dupes.map(function(p) { return p.info; }).filter(function(v) { return v && v.length > 0; }).sort(function(a, b) { return b.length - a.length; })[0] || '',
+      snapshots: mergedSnapshots
+    };
+
+    var fields = {};
+    Object.keys(merged).forEach(function(k) { fields[k] = jsToFirestoreValue_(merged[k]); });
+    var resp = UrlFetchApp.fetch(firestoreDocUrl_(canonicalId), {
+      method: 'patch',
+      contentType: 'application/json',
+      headers: { Authorization: 'Bearer ' + token },
+      payload: JSON.stringify({ fields: fields }),
+      muteHttpExceptions: true
+    });
+    if (resp.getResponseCode() !== 200) {
+      Logger.log('  ❌ Erro ao salvar documento mesclado: ' + resp.getContentText().substring(0, 200));
+      return;
+    }
+
+    dupes.forEach(function(p) {
+      if (p.patientId && p.patientId !== canonicalId) {
+        try {
+          firestoreDeletePatient_(p.patientId, token);
+          Logger.log('  🗑️ Apagado duplicado: ' + p.patientId);
+        } catch (e) {
+          Logger.log('  ⚠️ Não foi possível apagar ' + p.patientId + ': ' + e.message);
+        }
+      }
+    });
+
+    Logger.log('  ✅ Mesclado: ' + mergedSnapshots.length + ' snapshot(s) no total em "' + canonicalId + '"');
+  });
+
+  Logger.log('Concluído.');
+}
+
 // ── Processamento de um grupo de arquivos (todos do mesmo paciente) ───────────
 function processPatientGroup_(displayName, files, outputFolder) {
   var fileNames = files.map(function(f) { return f.getName(); });
@@ -733,6 +870,10 @@ function processPatientGroup_(displayName, files, outputFolder) {
 
   var patientData = extractJson_(result);
   if (!patientData) throw new Error('JSON não encontrado na resposta do Claude.');
+
+  // Nunca confiar no patientId gerado pelo Claude — sempre o mesmo, derivado
+  // do nome confiável (displayName), para nunca duplicar o paciente no painel.
+  patientData.patientId = slugifyPatientId_(displayName);
 
   // Salvar UM JSON + resumo por paciente (não por arquivo)
   var dateStr = Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'yyyy-MM-dd');
