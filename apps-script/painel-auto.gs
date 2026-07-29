@@ -3,29 +3,37 @@
 // Instituto Elo de Saúde · Dr. Gustavo Avelar
 //
 // Funcionamento:
-//   1. Funcionária preenche o Google Form "Acompanhamento Dr. Gustavo" com o
-//      campo "Paciente" (texto confiável, digitado por ela) + anexa o(s) PDF(s).
-//   2. O script (rodando a cada 5 min) lê a planilha de respostas do formulário,
-//      pega as linhas com Tipo de pedido = "Exames" ainda não analisadas.
-//   3. Agrupa por PACIENTE usando o texto do campo "Paciente" da planilha
-//      (não o nome do arquivo — nomes de arquivo do upload do Forms trazem o
-//      nome de quem enviou, não do paciente, e não são confiáveis para isso).
-//      Arquivos da MESMA pessoa numa mesma rodada são enviados JUNTOS ao
-//      Claude numa única chamada, para que histórico/anamnese e exames de
-//      datas diferentes sirvam de contexto (hipóteses mais fidedignas).
-//   4. Documentos sem valores numéricos (histórico, anamnese, prontuário) viram
-//      só contexto clínico — nunca um snapshot. Exames com datas de coleta
-//      diferentes viram snapshots SEPARADOS (um por data), preservando a
-//      comparação temporal correta.
-//   5. Salva UM JSON + resumo por paciente na pasta "IES · Exames Processados"
-//      (os PDFs originais NÃO são movidos — continuam no lugar de sempre,
-//      vinculados ao registro do formulário, para não atrapalhar o fluxo
-//      administrativo das funcionárias).
-//   6. Cria ou atualiza o paciente no Notion "Pacientes em Acompanhamento"
-//      (uma única atualização por paciente, usando a data mais recente)
-//   7. Envia um e-mail consolidado (um bloco por paciente, não por arquivo)
-//   8. Marca a(s) linha(s) da planilha como analisadas (coluna própria da IA,
-//      sem mexer na coluna "Etapa do processo" controlada pelas funcionárias)
+//   Existem DUAS formas de um exame entrar na automação — o script cobre as duas:
+//
+//   A) Via Google Form "Acompanhamento Dr. Gustavo": funcionária preenche o
+//      campo "Paciente" (texto confiável) + anexa o(s) PDF(s). O script lê a
+//      planilha de respostas e agrupa por esse campo.
+//
+//   B) Anexo direto na pasta "Anexos (File responses)" (mesma pasta do Form),
+//      seguindo o POP de nomenclatura do Instituto Elo de Saúde:
+//      "Exames_Nome_Sobrenome_Mes_Ano.pdf". O script varre a pasta, ignora
+//      qualquer arquivo já referenciado por uma linha da planilha (evita
+//      processar o mesmo exame duas vezes) e extrai o nome do paciente do
+//      próprio nome do arquivo — só quando ele segue o padrão do POP.
+//      Arquivos com nome fora do padrão são ignorados e listados no e-mail
+//      para a equipe corrigir, nunca adivinhados.
+//
+//   Pontos em comum às duas formas:
+//   - Agrupa por PACIENTE (campo do formulário OU nome do arquivo via POP,
+//     nunca o nome bruto do arquivo do upload do Forms — esse traz o nome de
+//     quem enviou, não do paciente, e não é confiável para identificação).
+//     Se o mesmo paciente tiver arquivos vindos das duas formas na mesma
+//     rodada, tudo é agrupado e enviado junto ao Claude.
+//   - Documentos sem valores numéricos (histórico, anamnese, prontuário) viram
+//     só contexto clínico — nunca um snapshot. Exames com datas de coleta
+//     diferentes viram snapshots SEPARADOS (um por data), preservando a
+//     comparação temporal correta.
+//   - Salva UM JSON + resumo por paciente na pasta "IES · Exames Processados"
+//     (os PDFs originais NÃO são movidos nem renomeados — continuam no lugar
+//     de sempre; o controle de "já processado" fica interno ao script).
+//   - Cria ou atualiza o paciente no Notion "Pacientes em Acompanhamento"
+//     (uma única atualização por paciente, usando a data mais recente).
+//   - Envia um e-mail consolidado (um bloco por paciente, não por arquivo).
 //
 // Setup: veja SETUP.md nesta mesma pasta
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -39,6 +47,7 @@ var CONFIG = {
   COL_ANEXOS:          'Anexos',
   TIPO_PEDIDO_EXAME:   'Exames',
   COL_STATUS_IA:       'Analisado pela IA', // criada automaticamente se não existir
+  ANEXOS_FOLDER_ID:    '18zJv7x8HpYOOksy_Mbwa9dFQdWL0fC9XV8RRhWonPSd1mbJ1ezFU26paINrK0E3J869bR88z', // pasta "Anexos (File responses)" — mesma do Form
   PASTA_PROCESSADOS:   'IES · Exames Processados',
   NOTION_DB_NAME:      'Pacientes em Acompanhamento',
   EMAIL_NOTIF:         'dr.gustavoavelar@gmail.com',
@@ -205,7 +214,7 @@ function collectPendingPatientGroups_() {
   }
 
   var lastRow = sheet.getLastRow();
-  if (lastRow < 2) return { groups: {}, sheet: sheet, statusCol: statusCol };
+  if (lastRow < 2) return { groups: {}, sheet: sheet, statusCol: statusCol, headerMap: headerMap };
 
   var data = sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).getValues();
   var groups = {}; // chave normalizada -> { displayName, files: [], rows: [] }
@@ -231,13 +240,106 @@ function collectPendingPatientGroups_() {
     });
   }
 
-  return { groups: groups, sheet: sheet, statusCol: statusCol };
+  return { groups: groups, sheet: sheet, statusCol: statusCol, headerMap: headerMap };
 }
 
 function markRowsStatus_(sheet, statusCol, rowNumbers, statusText) {
   rowNumbers.forEach(function(rowNumber) {
     sheet.getRange(rowNumber, statusCol + 1).setValue(statusText);
   });
+}
+
+// ── Anexos diretos na pasta (fora do formulário, seguindo o POP) ─────────────
+// Padrão do POP: "Exames_Nome_Sobrenome_Mes_Ano.pdf" (sem acentos). Também
+// aceita prefixos legados (resultado/laudo) que ainda aparecem na pasta.
+var PREFIXOS_ARQUIVO_CONHECIDOS_ = ['exames', 'exame', 'resultado', 'resultados', 'laudo', 'laudos'];
+var MESES_PT_ = ['janeiro', 'fevereiro', 'marco', 'abril', 'maio', 'junho', 'julho',
+                 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+
+// Extrai o nome do paciente de um arquivo salvo seguindo o POP. Retorna null
+// se o nome do arquivo não seguir um padrão reconhecível — nesse caso o
+// arquivo é ignorado (nunca adivinhado) e reportado no e-mail para a equipe
+// corrigir o nome.
+function extractPatientFromPOPFilename_(filename) {
+  var base = filename.replace(/\.pdf$/i, '').trim();
+  base = base.replace(/\s*\(\d+\)$/, ''); // remove sufixo de duplicata do Drive, ex: " (2)"
+  var tokens = base.split('_').map(function(t) { return t.trim(); }).filter(Boolean);
+  if (tokens.length === 0) return null;
+
+  if (PREFIXOS_ARQUIVO_CONHECIDOS_.indexOf(tokens[0].toLowerCase()) >= 0) {
+    tokens.shift();
+  }
+  if (tokens.length === 0) return null;
+
+  // Mês e ano são OBRIGATÓRIOS para reconhecer o padrão do POP — sem os
+  // dois, não há como confiar que o restante é mesmo o nome do paciente
+  // (evita tratar arquivos como "lab_unimed_12345.pdf" como se "lab unimed"
+  // fosse um paciente).
+  var last = tokens[tokens.length - 1];
+  if (!/^\d{4}$/.test(last)) return null; // ano obrigatório
+  tokens.pop();
+  if (tokens.length === 0) return null;
+
+  var lastNorm = normalizePatientName_(tokens[tokens.length - 1]);
+  if (MESES_PT_.indexOf(lastNorm) < 0) return null; // mês obrigatório
+  tokens.pop();
+  if (tokens.length === 0) return null;
+
+  return tokens.join(' ');
+}
+
+// Todos os IDs de arquivo já referenciados por alguma linha da planilha —
+// usado para não reprocessar pela varredura direta um arquivo que já veio
+// (ou vai vir) pelo caminho do formulário.
+function getFileIdsReferencedInSheet_(sheet, headerMap) {
+  var ids = {};
+  var colAnexos = headerMap[CONFIG.COL_ANEXOS];
+  if (colAnexos === undefined) return ids;
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return ids;
+  var values = sheet.getRange(2, colAnexos + 1, lastRow - 1, 1).getValues();
+  values.forEach(function(row) {
+    extractDriveFileIds_(row[0]).forEach(function(id) { ids[id] = true; });
+  });
+  return ids;
+}
+
+// Controle de "já processado" para anexos diretos — não usa planilha nem
+// move/renomeia o arquivo, só guarda o status internamente no script.
+function isDirectFileProcessed_(fileId) {
+  return PropertiesService.getScriptProperties().getProperty('DIRECT_' + fileId) !== null;
+}
+function markDirectFileStatus_(fileId, statusText) {
+  PropertiesService.getScriptProperties().setProperty('DIRECT_' + fileId, statusText);
+}
+
+// Varre a pasta "Anexos (File responses)" e agrupa por paciente os PDFs que:
+// (a) não vieram pelo formulário, (b) ainda não foram processados, e
+// (c) têm nome de arquivo reconhecível pelo POP.
+function collectPendingDirectDropGroups_(referencedIds) {
+  var folder = DriveApp.getFolderById(CONFIG.ANEXOS_FOLDER_ID);
+  var fileIterator = folder.getFilesByType(MimeType.PDF);
+  var groups = {};
+  var ignored = [];
+
+  while (fileIterator.hasNext()) {
+    var file = fileIterator.next();
+    var id = file.getId();
+    if (referencedIds[id]) continue;
+    if (isDirectFileProcessed_(id)) continue;
+
+    var patientName = extractPatientFromPOPFilename_(file.getName());
+    if (!patientName) {
+      ignored.push(file.getName());
+      continue;
+    }
+    var key = normalizePatientName_(patientName);
+    if (!groups[key]) groups[key] = { displayName: patientName, files: [], fileIds: [] };
+    groups[key].files.push(file);
+    groups[key].fileIds.push(id);
+  }
+
+  return { groups: groups, ignored: ignored };
 }
 
 // ── Claude API ────────────────────────────────────────────────────────────────
@@ -479,14 +581,37 @@ function processPatientGroup_(displayName, files, outputFolder) {
 function processarExames() {
   var outputFolder = getOrCreateFolder_(CONFIG.PASTA_PROCESSADOS);
 
+  // Fonte 1: planilha do formulário
   var pending = collectPendingPatientGroups_();
-  var groups = pending.groups;
   var sheet = pending.sheet;
   var statusCol = pending.statusCol;
-  var groupKeys = Object.keys(groups);
 
-  if (groupKeys.length === 0) {
-    Logger.log('Nenhuma resposta nova de "Exames" pendente na planilha.');
+  // Fonte 2: anexos direto na pasta, ignorando o que já está referenciado
+  // na planilha (evita processar o mesmo exame duas vezes)
+  var referencedIds = getFileIdsReferencedInSheet_(sheet, pending.headerMap);
+  var direct = collectPendingDirectDropGroups_(referencedIds);
+
+  // Combina as duas fontes por paciente — se o mesmo paciente tiver arquivos
+  // vindos do formulário E de anexo direto na mesma rodada, tudo é agrupado
+  // e enviado junto ao Claude.
+  var allGroups = {}; // chave normalizada -> { displayName, files, rows?, fileIds? }
+  Object.keys(pending.groups).forEach(function(key) {
+    var g = pending.groups[key];
+    allGroups[key] = { displayName: g.displayName, files: g.files.slice(), rows: g.rows };
+  });
+  Object.keys(direct.groups).forEach(function(key) {
+    var g = direct.groups[key];
+    if (allGroups[key]) {
+      allGroups[key].files = allGroups[key].files.concat(g.files);
+      allGroups[key].fileIds = g.fileIds;
+    } else {
+      allGroups[key] = { displayName: g.displayName, files: g.files.slice(), fileIds: g.fileIds };
+    }
+  });
+
+  var groupKeys = Object.keys(allGroups);
+  if (groupKeys.length === 0 && direct.ignored.length === 0) {
+    Logger.log('Nada pendente (nem planilha, nem anexos diretos).');
     return;
   }
 
@@ -494,16 +619,18 @@ function processarExames() {
   var errors    = [];
 
   for (var g = 0; g < groupKeys.length; g++) {
-    var group = groups[groupKeys[g]];
+    var group = allGroups[groupKeys[g]];
+    var agora = Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'dd/MM/yyyy HH:mm');
     try {
       var r = processPatientGroup_(group.displayName, group.files, outputFolder);
       processed.push(r);
-      markRowsStatus_(sheet, statusCol, group.rows,
-        '✅ ' + Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'dd/MM/yyyy HH:mm'));
+      if (group.rows) markRowsStatus_(sheet, statusCol, group.rows, '✅ ' + agora);
+      if (group.fileIds) group.fileIds.forEach(function(id) { markDirectFileStatus_(id, '✅ OK ' + agora); });
     } catch (e) {
       Logger.log('❌ Erro no paciente "' + group.displayName + '": ' + e.message);
       errors.push({ file: group.displayName, error: e.message });
-      markRowsStatus_(sheet, statusCol, group.rows, '⚠️ ERRO: ' + e.message.substring(0, 200));
+      if (group.rows) markRowsStatus_(sheet, statusCol, group.rows, '⚠️ ERRO: ' + e.message.substring(0, 200));
+      if (group.fileIds) group.fileIds.forEach(function(id) { markDirectFileStatus_(id, '⚠️ ERRO: ' + e.message.substring(0, 200) + ' ' + agora); });
     }
   }
 
@@ -536,7 +663,13 @@ function processarExames() {
     for (var j = 0; j < errors.length; j++) {
       body += '• ' + errors[j].file + '\n  ' + errors[j].error + '\n';
     }
-    body += '\nLinha(s) da planilha marcada(s) com erro — corrija e apague a célula de status para tentar novamente.\n';
+    body += '\nLinha(s)/arquivo(s) marcados com erro — corrija a causa e apague a célula de status (planilha) ou peça para reprocessar (anexo direto).\n';
+  }
+
+  if (direct.ignored.length > 0) {
+    body += '\n📎 ' + direct.ignored.length + ' arquivo(s) na pasta "Anexos" ignorado(s) por nome fora do padrão do POP:\n';
+    direct.ignored.forEach(function(name) { body += '• ' + name + '\n'; });
+    body += '\nRenomeie seguindo "Exames_Nome_Sobrenome_Mes_Ano.pdf" para que sejam processados na próxima rodada.\n';
   }
 
   MailApp.sendEmail({

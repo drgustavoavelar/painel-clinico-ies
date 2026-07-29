@@ -6,26 +6,39 @@ Tempo estimado: **10 minutos**. Roda nos servidores do Google — Mac pode estar
 
 ## O que este script faz
 
+O script cobre **duas formas** de um exame chegar para análise:
+
 ```
-Funcionária preenche o Google Form "Acompanhamento Dr. Gustavo"
-  (campo "Paciente" + anexa o(s) PDF(s), Tipo de pedido = Exames)
-       ↓ (a cada 5 min, automático)
-  Script lê a planilha de respostas do formulário
-       ↓
-  Agrupa por paciente (usa o campo "Paciente", não o nome do arquivo)
-       ↓
-  Claude API analisa todos os documentos daquele paciente JUNTOS
-       ↓
-  JSON + resumo salvos no Drive · Notion atualizado · E-mail enviado
-       ↓
-  Linha da planilha marcada como analisada (não reprocessa de novo)
+A) Pelo formulário                          B) Anexo direto na pasta
+   Funcionária preenche o Form                 Arquivo salvo seguindo o POP:
+   (campo "Paciente" + anexa PDF(s),            "Exames_Nome_Sobrenome_Mes_Ano.pdf"
+   Tipo de pedido = Exames)                     na pasta "Anexos (File responses)"
+       ↓                                            ↓
+       └──────────────── a cada 5 min, automático ──┘
+                            ↓
+      Agrupa por paciente (campo "Paciente" do form OU nome do
+      arquivo via POP — nunca o nome bruto do upload do Forms)
+                            ↓
+      Claude API analisa todos os documentos daquele paciente JUNTOS
+                            ↓
+      JSON + resumo salvos no Drive · Notion atualizado · E-mail enviado
+                            ↓
+      Linha da planilha marcada / arquivo registrado como analisado
+      (cada fonte com seu próprio controle — não reprocessa de novo)
 ```
 
-**Por que não usar o nome do arquivo para identificar o paciente:** os uploads do
-Google Forms são renomeados automaticamente com o nome de quem *enviou* o
-formulário (a funcionária), não do paciente — várias pacientes diferentes podem
-ter arquivos com a mesma "segunda parte" do nome. O campo de texto "Paciente"
-da planilha é a única fonte confiável.
+**Por que não usar o nome bruto do arquivo do upload do Forms:** os uploads que
+passam pela pergunta de anexo do Google Forms são renomeados automaticamente
+com o nome de quem *enviou* o formulário (a funcionária), não do paciente —
+várias pacientes diferentes podem ter arquivos com a mesma "segunda parte" do
+nome. Por isso a Fonte A usa o campo de texto "Paciente" da planilha, nunca o
+nome do arquivo.
+
+**Anexo direto (Fonte B) só funciona se o nome do arquivo seguir o POP** —
+"Exames_Nome_Sobrenome_Mes_Ano.pdf" (mês e ano por extenso/numérico são
+obrigatórios). Arquivos fora desse padrão (ex.: `scan_123.pdf`,
+`lab_unimed_12345.pdf`) são ignorados automaticamente — nunca adivinhados — e
+listados no e-mail de notificação para a equipe corrigir o nome.
 
 ---
 
@@ -187,6 +200,8 @@ Para WhatsApp, seria necessário integrar o Twilio ou similar (adicionar uma cha
 | Erro `Claude API 401` | Chave Anthropic inválida ou expirada | Gere nova chave em console.anthropic.com |
 | Linha marcada com `⚠️ ERRO: ...` na planilha | Erro no processamento daquela resposta | Veja a mensagem na própria célula; corrija a causa e apague a célula para reprocessar |
 | E-mail não chega | MailApp sem permissão | Rode `instalarTrigger` de novo e autorize |
+| Arquivo anexado direto na pasta nunca é processado | Nome fora do padrão do POP (falta mês/ano, ou não é `Exames_Nome_Sobrenome_Mes_Ano.pdf`) | Confira a lista de "arquivos ignorados" no e-mail; renomeie seguindo o POP |
+| Quero forçar reprocessar um anexo direto já processado | O controle fica salvo internamente (Propriedades do Script, chave `DIRECT_<idDoArquivo>`) | Apps Script → ⚙️ Configurações do projeto → Propriedades do script → localize a chave `DIRECT_...` do arquivo e apague-a |
 
 ### Ver logs de execução
 
