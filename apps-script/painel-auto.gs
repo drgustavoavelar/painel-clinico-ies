@@ -57,7 +57,7 @@ var CONFIG = {
   // ── Firestore (alimenta o painel automaticamente, sem colar JSON) ──────────
   FIRESTORE_PROJECT_ID: 'instituto-elo-de-saude',
   FIRESTORE_APP_ID:     'painel-clinico-ies-web', // mesmo appId usado no painel (index.html)
-  FIRESTORE_UID:        'COLE_AQUI_O_UID_DO_FIREBASE_AUTH', // ver SETUP.md — "Passo 6"
+  FIRESTORE_UID:        'uwVXntG3IWZo6qiWyOxHufYeFW03', // Dr. Gustavo Avelar (drgustavo@elodesaude.com)
 };
 
 // ── System prompt clínico (espelho do painel.py) ──────────────────────────────
