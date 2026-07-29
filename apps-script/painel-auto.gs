@@ -338,8 +338,14 @@ function getFileIdsReferencedInSheet_(sheet, headerMap) {
 
 // Controle de "já processado" para anexos diretos — não usa planilha nem
 // move/renomeia o arquivo, só guarda o status internamente no script.
+// IMPORTANTE: só um sucesso (✅) conta como "definitivo". Um erro anterior
+// (ex.: falta de crédito na API, instabilidade momentânea) NÃO bloqueia
+// reprocessamento — sem isso, um paciente cujo primeiro processamento falhou
+// por um motivo temporário ficaria travado para sempre, mesmo depois de a
+// causa do erro ser corrigida (foi exatamente o que aconteceu com a Kelly).
 function isDirectFileProcessed_(fileId) {
-  return PropertiesService.getScriptProperties().getProperty('DIRECT_' + fileId) !== null;
+  var status = PropertiesService.getScriptProperties().getProperty('DIRECT_' + fileId);
+  return status !== null && status.indexOf('✅') === 0;
 }
 function markDirectFileStatus_(fileId, statusText) {
   PropertiesService.getScriptProperties().setProperty('DIRECT_' + fileId, statusText);
