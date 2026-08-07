@@ -109,6 +109,7 @@
     * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
     html, body { margin: 0; padding: 0; }
     .toolbar, #tabs, .modal-bg, footer, #btnPrint, #btnPrintPatient, #patientSwitchToast { display: none !important; }
+    #panel-trends.no-print-trends { display: none !important; }
 
     /* Impressão para o paciente: só Marcadores e Tendências */
     body.print-patient-mode #panel-findings,
@@ -118,7 +119,7 @@
     body.print-patient-mode #panel-terapeutica {
       display: none !important;
     }
-    #appShell { display: block !important; }
+    #appShell { display: block !important; padding-top: 6mm; }
     header {
       padding: 12px 18px; margin: 0; position: static !important;
       page-break-after: avoid;
@@ -157,6 +158,19 @@
     .print-date { font-size: 10px; }
     .snap-list { gap: 6px; margin-top: 4px; }
     .snap-chip { font-size: 10px; padding: 2px 6px; }
+
+    body.print-patient-mode main { padding: 6px 14px 14px; }
+    body.print-patient-mode .card { margin-bottom: 8px; padding: 9px 12px; }
+    body.print-patient-mode .card h2 { font-size: 12px; margin-bottom: 5px; }
+    body.print-patient-mode .metric-grid { grid-template-columns: repeat(auto-fill, minmax(128px, 1fr)); gap: 5px; }
+    body.print-patient-mode .metric { padding: 5px 7px; }
+    body.print-patient-mode .metric .name { font-size: 10.5px; }
+    body.print-patient-mode .metric .val { font-size: 13px; margin: 1px 0; }
+    body.print-patient-mode .metric .ref,
+    body.print-patient-mode .metric .flag { font-size: 9.5px; }
+    body.print-patient-mode .chart-wrap { height: 150px !important; }
+    body.print-patient-mode .chart-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    body.print-patient-mode .chart-item { margin-bottom: 8px; padding-bottom: 6px; }
   }
 </style>
 </head>
@@ -576,12 +590,21 @@ function render() {
   charts = [];
   const keys = {};
   snaps.forEach(s => (s.metrics||[]).forEach(m => { keys[m.key] = m.label; }));
-  Object.keys(keys).forEach(key => {
+  const trendKeys = Object.keys(keys).filter(key => {
     const points = snaps.map(s => {
       const m = (s.metrics||[]).find(mm => mm.key === key);
       return m ? { x: s.date, y: m.value, ref: m } : null;
     }).filter(Boolean);
-    if (points.length < 1) return;
+    return points.length >= 2;
+  });
+
+  document.getElementById("panel-trends").classList.toggle("no-print-trends", trendKeys.length === 0);
+
+  trendKeys.forEach(key => {
+    const points = snaps.map(s => {
+      const m = (s.metrics||[]).find(mm => mm.key === key);
+      return m ? { x: s.date, y: m.value, ref: m } : null;
+    }).filter(Boolean);
     const wrap = document.createElement("div");
     wrap.className = "chart-item";
     wrap.innerHTML = `<div style="font-weight:700;color:var(--azul-esc);margin-bottom:4px">${keys[key]}</div><div class="chart-wrap"><canvas></canvas></div>`;
@@ -603,7 +626,9 @@ function render() {
     });
     charts.push(ch);
   });
-  if (Object.keys(keys).length === 0) chartGrid.innerHTML = `<div class="empty">Sem marcadores para plotar ainda.</div>`;
+  if (trendKeys.length === 0) {
+    chartGrid.innerHTML = `<div class="empty">Sem dados longitudinais suficientes para tendências (é preciso pelo menos duas coletas do mesmo marcador).</div>`;
+  }
 
   // Findings
   const fdiv = document.getElementById("findingsList");
