@@ -52,7 +52,8 @@ var CONFIG = {
   NOTION_DB_NAME:      'Pacientes em Acompanhamento',
   EMAIL_NOTIF:         'dr.gustavoavelar@gmail.com',
   MODELO_CLAUDE:       'claude-haiku-4-5-20251001',
-  MAX_PDF_BYTES:       8 * 1024 * 1024,   // 8 MB — limite seguro para UrlFetchApp
+  MAX_PDF_BYTES:       8 * 1024 * 1024,   // 8 MB — limite seguro para enviar ao Claude
+  MAX_PDF_BYTES_HARD:  40 * 1024 * 1024,  // 40 MB — acima disso, nem tenta comprimir (proteção contra OOM)
 
   // ── Firestore (alimenta o painel automaticamente, sem colar JSON) ──────────
   FIRESTORE_PROJECT_ID: 'instituto-elo-de-saude',
@@ -408,6 +409,111 @@ function collectPendingDirectDropGroups_(referencedIds) {
   return { groups: groups, ignored: ignored };
 }
 
+// ── Compressão de PDF (iLoveAPI) ──────────────────────────────────────────────
+// PDFs grandes (normalmente exames escaneados em foto/alta resolução) são
+// comprimidos automaticamente ANTES de chegar ao Claude — assim nunca mais é
+// preciso comprimir manualmente no iLovePDF, e nunca enviamos um arquivo
+// grande demais que arrisque "Out of memory" no Apps Script. O Claude sempre
+// recebe o PDF completo (não texto extraído por OCR), então a leitura clínica
+// continua tão confiável quanto hoje — só o arquivo fica mais leve.
+function getILovePdfToken_() {
+  var publicKey = getApiKey_('ILOVEPDF_PUBLIC_KEY');
+  var resp = UrlFetchApp.fetch('https://api.ilovepdf.com/v1/auth', {
+    method: 'post',
+    contentType: 'application/json',
+    payload: JSON.stringify({ public_key: publicKey }),
+    muteHttpExceptions: true
+  });
+  if (resp.getResponseCode() !== 200) {
+    throw new Error('Falha ao autenticar no iLoveAPI: ' + resp.getContentText().substring(0, 200));
+  }
+  return JSON.parse(resp.getContentText()).token;
+}
+
+// Comprime um PDF via iLoveAPI e retorna os bytes comprimidos. Lança erro se
+// qualquer etapa falhar — quem chama decide o que fazer (ex.: cair no erro de
+// "arquivo muito grande" normal, em vez de travar o script).
+function compressPdfViaILoveApi_(bytes, filename) {
+  var token = getILovePdfToken_();
+  var authHeader = { Authorization: 'Bearer ' + token };
+
+  var startResp = UrlFetchApp.fetch('https://api.ilovepdf.com/v1/start/compress', {
+    headers: authHeader,
+    muteHttpExceptions: true
+  });
+  if (startResp.getResponseCode() !== 200) {
+    throw new Error('iLoveAPI start falhou (' + startResp.getResponseCode() + '): ' + startResp.getContentText().substring(0, 200));
+  }
+  var startData = JSON.parse(startResp.getContentText());
+  var server = startData.server;
+  var task = startData.task;
+
+  var uploadResp = UrlFetchApp.fetch('https://' + server + '/v1/upload', {
+    method: 'post',
+    headers: authHeader,
+    payload: {
+      task: task,
+      file: Utilities.newBlob(bytes, 'application/pdf', filename)
+    },
+    muteHttpExceptions: true
+  });
+  if (uploadResp.getResponseCode() !== 200) {
+    throw new Error('iLoveAPI upload falhou (' + uploadResp.getResponseCode() + '): ' + uploadResp.getContentText().substring(0, 200));
+  }
+  var serverFilename = JSON.parse(uploadResp.getContentText()).server_filename;
+
+  var processResp = UrlFetchApp.fetch('https://' + server + '/v1/process', {
+    method: 'post',
+    contentType: 'application/json',
+    headers: authHeader,
+    payload: JSON.stringify({
+      task: task,
+      tool: 'compress',
+      compression_level: 'recommended',
+      files: [{ server_filename: serverFilename, filename: filename }]
+    }),
+    muteHttpExceptions: true
+  });
+  if (processResp.getResponseCode() !== 200) {
+    throw new Error('iLoveAPI process falhou (' + processResp.getResponseCode() + '): ' + processResp.getContentText().substring(0, 200));
+  }
+
+  var downloadResp = UrlFetchApp.fetch('https://' + server + '/v1/download/' + task, {
+    headers: authHeader,
+    muteHttpExceptions: true
+  });
+  if (downloadResp.getResponseCode() !== 200) {
+    throw new Error('iLoveAPI download falhou (' + downloadResp.getResponseCode() + '): ' + downloadResp.getContentText().substring(0, 200));
+  }
+  return downloadResp.getContent();
+}
+
+// Se o PDF passar do limite normal, tenta comprimir antes de desistir.
+// Nunca tenta comprimir acima do teto rígido (MAX_PDF_BYTES_HARD) — arquivo
+// tão grande assim é rejeitado direto, sem risco de estourar memória.
+function getBytesWithinLimit_(file) {
+  var bytes = file.getBlob().getBytes();
+  if (bytes.length <= CONFIG.MAX_PDF_BYTES) return bytes;
+
+  if (bytes.length > CONFIG.MAX_PDF_BYTES_HARD) {
+    throw new Error('Arquivo "' + file.getName() + '" muito grande (' +
+      Math.round(bytes.length / 1024 / 1024) + ' MB) — acima do teto de ' +
+      Math.round(CONFIG.MAX_PDF_BYTES_HARD / 1024 / 1024) + ' MB nem para tentar comprimir. ' +
+      'Peça para reduzir a qualidade do scan antes de reenviar.');
+  }
+
+  Logger.log('📎 Arquivo grande (' + Math.round(bytes.length / 1024 / 1024 * 10) / 10 +
+    ' MB) — comprimindo via iLoveAPI: ' + file.getName());
+  var compressed = compressPdfViaILoveApi_(bytes, file.getName());
+  Logger.log('  → Após compressão: ' + Math.round(compressed.length / 1024 / 1024 * 10) / 10 + ' MB');
+
+  if (compressed.length > CONFIG.MAX_PDF_BYTES) {
+    throw new Error('Arquivo "' + file.getName() + '" continua grande demais mesmo após compressão (' +
+      Math.round(compressed.length / 1024 / 1024) + ' MB). Divida o PDF em partes menores.');
+  }
+  return compressed;
+}
+
 // ── Claude API ────────────────────────────────────────────────────────────────
 // Envia um ou mais PDFs do MESMO paciente numa única chamada, para que o
 // Claude tenha o contexto completo (histórico + exames de datas diferentes).
@@ -417,12 +523,7 @@ function callClaudeMultiDoc_(files, displayName) {
   var content = [];
   var fileNames = [];
   for (var i = 0; i < files.length; i++) {
-    var blob = files[i].getBlob();
-    var bytes = blob.getBytes();
-    if (bytes.length > CONFIG.MAX_PDF_BYTES) {
-      throw new Error('Arquivo "' + files[i].getName() + '" muito grande (' +
-        Math.round(bytes.length / 1024 / 1024) + ' MB). Limite: 8 MB por arquivo.');
-    }
+    var bytes = getBytesWithinLimit_(files[i]); // comprime automaticamente se preciso
     content.push({
       type: 'document',
       source: { type: 'base64', media_type: 'application/pdf', data: Utilities.base64Encode(bytes) }
